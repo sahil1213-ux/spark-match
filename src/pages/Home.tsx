@@ -5,7 +5,7 @@ import SwipeCard from '@/components/SwipeCard';
 
 export default function Home() {
   const [candidates, setCandidates] = useState<MatchResult[]>([]);
-  const [remaining, setRemaining] = useState(25);
+  const [swipedCount, setSwipedCount] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
   const [matchPopup, setMatchPopup] = useState<string | null>(null);
 
@@ -14,9 +14,11 @@ export default function Home() {
       try {
         const result = await getMatches();
         setCandidates(result.matches);
-        setRemaining(result.remaining);
-        if (result.message === 'no_swipes_remaining') {
-          setMessage('No swipes remaining – resets in 24h');
+        setSwipedCount(25 - result.remaining);
+        if (result.message === 'no_more_cards_today') {
+          setMessage('No More Cards for Today');
+        } else if (result.message === 'no_profiles_for_first_priority') {
+          setMessage('No profiles found for your 1st priority right now.');
         }
       } catch (e) {
         console.error('Failed to load matches', e);
@@ -31,13 +33,13 @@ export default function Home() {
     if (!current) return;
     try {
       const result = await swipeUser(current.uid, direction);
-      setRemaining(result.remaining);
+      setSwipedCount(25 - result.remaining);
       if (result.matched) {
         setMatchPopup(current.name);
         setTimeout(() => setMatchPopup(null), 3000);
       }
       if (result.remaining <= 0) {
-        setMessage('No swipes remaining – resets in 24h');
+        setMessage('No More Cards for Today');
       }
     } catch (e) {
       console.error('Swipe failed', e);
@@ -50,7 +52,7 @@ export default function Home() {
       <div className="max-w-sm mx-auto px-4 pt-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-heading font-bold">Discover</h1>
-          <span className="text-sm text-muted-foreground">{remaining} swipes left</span>
+          <span className="text-sm text-muted-foreground">{swipedCount}/25 swiped</span>
         </div>
         {message ? (
           <p className="text-muted-foreground text-center py-20">{message}</p>
