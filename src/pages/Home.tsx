@@ -1,20 +1,15 @@
 import { useEffect, useState } from 'react';
-import { getCurrentUserProfile, getAllOtherUsers, rankCandidatesWithAI, swipeUser, UserProfile } from '@/lib/store';
-import SwipeCard from '@/components/SwipeCard';
+import { getMatches, swipeUser, MatchResult } from '@/lib/store';
 import BottomNav from '@/components/BottomNav';
+import { Heart, X } from 'lucide-react';
 
 export default function Home() {
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
-  const [candidates, setCandidates] = useState<UserProfile[]>([]);
-  const [matchPopup, setMatchPopup] = useState<string | null>(null);
+  const [candidates, setCandidates] = useState<MatchResult[]>([]);
+  const [remaining, setRemaining] = useState<number | null>(null);
 
   useEffect(() => {
     const load = async () => {
-      const me = await getCurrentUserProfile();
-      if (!me) return;
-      setCurrentUser(me);
-      const others = await getAllOtherUsers(me.id);
-      const ranked = await rankCandidatesWithAI(me, others);
+      const ranked = await getMatches();
       setCandidates(ranked);
     };
     void load();
