@@ -10,9 +10,9 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // personalityScores: only the owner can read/write; Cloud Functions use admin SDK
+    // Private: only Cloud Functions (Admin SDK) should read personality vectors.
     match /personalityScores/{uid} {
-      allow read, write: if isOwner(uid);
+      allow read, write: if false;
     }
 
     match /preferences/{uid} {
@@ -35,10 +35,9 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // swipeQueues: only the owner; written by Cloud Functions via admin SDK
     match /swipeQueues/{uid} {
       allow read: if isOwner(uid);
-      allow write: if false; // only Cloud Functions write
+      allow write: if false;
     }
   }
 }
