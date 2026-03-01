@@ -7,245 +7,376 @@ admin.initializeApp();
 const db = admin.firestore();
 
 const TRAITS = ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism'];
-const QUEUE_TTL_MS = 23 * 60 * 60 * 1000; // 23 hours
+const MAX_QUEUE_SIZE = 25;
+const RADIUS_METERS = 25000;
+const QUEUE_TTL_MS = 23 * 60 * 60 * 1000;
+const READ_CANDIDATE_CAP = 200;
+const EARLY_STOP_CANDIDATE_CAP = 200;
 
-function desiredFromPreferences(pref) {
+function ensurePriorityOrder(priorityOrder) {
+  const list = Array.isArray(priorityOrder) ? priorityOrder : [];
+  const filtered = list.filter((trait) => TRAITS.includes(trait));
+  const missing = TRAITS.filter((trait) => !filtered.includes(trait));
+  return [...filtered, ...missing];
+}
+
+function desiredFromPreferences(pref = {}) {
   return {
-    openness: pref.desiredOpenness,
-    conscientiousness: pref.desiredConscientiousness,
-    extraversion: pref.desiredExtraversion,
-    agreeableness: pref.desiredAgreeableness,
-    neuroticism: pref.desiredNeuroticism,
+    openness: Number(pref.desiredOpenness ?? 0),
+    conscientiousness: Number(pref.desiredConscientiousness ?? 0),
+    extraversion: Number(pref.desiredExtraversion ?? 0),
+    agreeableness: Number(pref.desiredAgreeableness ?? 0),
+    neuroticism: Number(pref.desiredNeuroticism ?? 0),
   };
 }
 
-function normalizedWeights(priorityOrder) {
-  const raw = priorityOrder.map((trait, idx) => ({ trait, weight: 5 - idx }));
+function normalizedWeights(priorityOrder = TRAITS) {
+  const order = ensurePriorityOrder(priorityOrder);
+  const raw = order.map((trait, idx) => ({ trait, weight: 5 - idx }));
   const total = raw.reduce((sum, item) => sum + item.weight, 0);
   return Object.fromEntries(raw.map((item) => [item.trait, item.weight / total]));
 }
 
-function matchScore(preferences, candidateScores) {
-  const weights = normalizedWeights(preferences.priorityOrder || TRAITS);
+function computeMatchScore(preferences, candidateScores) {
   const desired = desiredFromPreferences(preferences);
-  const distance = TRAITS.reduce((sum, trait) => {
-    return sum + (weights[trait] || 0) * Math.abs((desired[trait] || 0) - (candidateScores[trait] || 0));
+  const weights = normalizedWeights(preferences.priorityOrder);
+  const weightedDiff = TRAITS.reduce((sum, trait) => {
+    const delta = Math.abs((desired[trait] ?? 0) - Number(candidateScores[trait] ?? 0));
+    return sum + (weights[trait] ?? 0) * delta;
   }, 0);
-  return Math.max(0, Math.round(100 - distance));
+
+  return Math.max(0, Math.round((100 - weightedDiff) * 100) / 100);
 }
 
-function haversineKm(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371e3;
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const dPhi = ((lat2 - lat1) * Math.PI) / 180;
+  const dLambda = ((lon2 - lon1) * Math.PI) / 180;
+
   const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    Math.sin(dPhi / 2) * Math.sin(dPhi / 2) +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLambda / 2) * Math.sin(dLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
 }
 
-// ── helpers ──
+function getDesiredThreshold(preferences, trait) {
+  const desired = desiredFromPreferences(preferences);
+  return Number(desired[trait] ?? 0);
+}
 
-async function getCandidatesWithin25km(userLocation, uid, pref) {
+async function getAlreadySwipedIds(uid) {
+  const swipedSnapshot = await db.collection('swipes').where('swiperId', '==', uid).get();
+  return new Set(swipedSnapshot.docs.map((doc) => doc.data().targetId));
+}
+
+async function queryCandidatesWithin25km({ userLocation, uid, minAge, maxAge, swipedIds }) {
   const center = [userLocation.latitude, userLocation.longitude];
-  const radiusM = 25000;
-  const bounds = geofire.geohashQueryBounds(center, radiusM);
+  const bounds = geofire.geohashQueryBounds(center, RADIUS_METERS);
+  const candidatesMap = new Map();
 
-  const snapshots = await Promise.all(
-    bounds.map(([start, end]) =>
-      db.collection('users').orderBy('geohash').startAt(start).endAt(end).limit(200).get(),
-    ),
-  );
-
-  const swipedQuery = await db.collection('swipes').where('swiperId', '==', uid).get();
-  const swiped = new Set(swipedQuery.docs.map((d) => d.data().targetId));
-
-  const candidates = [];
-  const seen = new Set();
-  for (const snap of snapshots) {
-    for (const d of snap.docs) {
-      if (d.id === uid || swiped.has(d.id) || seen.has(d.id)) continue;
-      seen.add(d.id);
-      const c = d.data();
-      if (!c.location || !c.onboardingCompleted) continue;
-      if (c.age < pref.minAge || c.age > pref.maxAge) continue;
-      const distance = haversineKm(center[0], center[1], c.location.latitude, c.location.longitude);
-      if (distance > 25) continue;
-      candidates.push({ id: d.id, ...c, distance });
-    }
-  }
-  return candidates;
-}
-
-// ── getMatches ──
-
-exports.getMatches = onCall(async (req) => {
-  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign-in required');
-  const uid = req.auth.uid;
-
-  const [userSnap, prefSnap, scoreSnap] = await Promise.all([
-    db.collection('users').doc(uid).get(),
-    db.collection('preferences').doc(uid).get(),
-    db.collection('personalityScores').doc(uid).get(),
-  ]);
-
-  if (!userSnap.exists || !prefSnap.exists || !scoreSnap.exists) {
-    throw new HttpsError('failed-precondition', 'Complete onboarding first');
-  }
-
-  const user = userSnap.data();
-  if (!user.onboardingCompleted) {
-    throw new HttpsError('failed-precondition', 'Complete onboarding first');
-  }
-  if (!user.location) {
-    throw new HttpsError('failed-precondition', 'location_required');
-  }
-
-  const remaining = user.swipeRemaining ?? 0;
-  if (remaining <= 0) {
-    return { matches: [], remaining: 0, message: 'no_swipes_remaining' };
-  }
-
-  const pref = prefSnap.data();
-
-  // ── Check cached queue ──
-  const queueRef = db.collection('swipeQueues').doc(uid);
-  const queueSnap = await queueRef.get();
-
-  if (queueSnap.exists) {
-    const qData = queueSnap.data();
-    const age = Date.now() - (qData.generatedAt?.toMillis?.() || 0);
-    const idx = qData.lastCandidateIndex || 0;
-    const queue = qData.queue || [];
-    if (age < QUEUE_TTL_MS && idx < queue.length) {
-      const slice = queue.slice(idx, idx + Math.min(25, remaining));
-      // Fetch profile summaries for the slice
-      const profiles = await buildProfileSummaries(slice, user.location, pref);
-      return { matches: profiles, remaining };
-    }
-  }
-
-  // ── Generate new queue ──
-  const candidates = await getCandidatesWithin25km(user.location, uid, pref);
-
-  // Fetch personality scores for all candidates
-  const scoreDocs = await Promise.all(
-    candidates.map((c) => db.collection('personalityScores').doc(c.id).get()),
-  );
-  const withScores = candidates
-    .map((candidate, idx) => ({ candidate, scores: scoreDocs[idx].exists ? scoreDocs[idx].data() : null }))
-    .filter((x) => x.scores);
-
-  // ── Strict priority loop ──
-  const priorityOrder = pref.priorityOrder || TRAITS;
-  const desired = desiredFromPreferences(pref);
-  let finalSet = null;
-
-  for (const trait of priorityOrder) {
-    const threshold = desired[trait] || 0;
-    const filtered = withScores.filter((item) => (item.scores[trait] || 0) >= threshold);
-    if (filtered.length > 0) {
-      finalSet = filtered;
+  for (const [start, end] of bounds) {
+    if (candidatesMap.size >= EARLY_STOP_CANDIDATE_CAP) {
       break;
     }
+
+    const snapshot = await db
+      .collection('users')
+      .orderBy('geohash')
+      .startAt(start)
+      .endAt(end)
+      .limit(READ_CANDIDATE_CAP)
+      .get();
+
+    for (const doc of snapshot.docs) {
+      if (candidatesMap.size >= EARLY_STOP_CANDIDATE_CAP) {
+        break;
+      }
+
+      if (doc.id === uid || swipedIds.has(doc.id) || candidatesMap.has(doc.id)) {
+        continue;
+      }
+
+      const data = doc.data();
+      if (!data?.onboardingCompleted || !data?.location) {
+        continue;
+      }
+
+      const age = Number(data.age ?? 0);
+      if (Number.isFinite(minAge) && age < minAge) {
+        continue;
+      }
+      if (Number.isFinite(maxAge) && age > maxAge) {
+        continue;
+      }
+
+      const distanceMeters = haversineMeters(
+        center[0],
+        center[1],
+        data.location.latitude,
+        data.location.longitude,
+      );
+
+      if (distanceMeters > RADIUS_METERS) {
+        continue;
+      }
+
+      candidatesMap.set(doc.id, {
+        uid: doc.id,
+        name: data.name ?? '',
+        age,
+        bio: data.bio ?? '',
+        distanceMeters: Math.round(distanceMeters),
+      });
+    }
   }
 
-  if (!finalSet) {
-    finalSet = withScores;
+  return [...candidatesMap.values()];
+}
+
+async function buildRankedProfiles(candidates, preferences) {
+  if (candidates.length === 0) {
+    return [];
   }
 
-  // Score, sort, limit
-  const ranked = finalSet
-    .map(({ candidate, scores }) => ({
-      uid: candidate.id,
-      name: candidate.name,
-      age: candidate.age,
-      bio: candidate.bio || '',
-      photos: candidate.photos || [],
-      distance: Math.round(candidate.distance * 10) / 10,
-      matchScore: matchScore(pref, scores),
-    }))
-    .sort((a, b) => b.matchScore - a.matchScore || a.distance - b.distance)
-    .slice(0, 25);
+  const scoreSnapshots = await Promise.all(
+    candidates.map((candidate) => db.collection('personalityScores').doc(candidate.uid).get()),
+  );
 
-  // Save queue
-  const queueUids = ranked.map((r) => r.uid);
-  await queueRef.set({
-    queue: queueUids,
-    generatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    lastCandidateIndex: 0,
-  });
+  return candidates
+    .map((candidate, idx) => {
+      const scoreSnap = scoreSnapshots[idx];
+      if (!scoreSnap.exists) {
+        return null;
+      }
 
-  const returnSlice = ranked.slice(0, Math.min(25, remaining));
-  return { matches: returnSlice, remaining };
-});
-
-async function buildProfileSummaries(uids, userLocation, pref) {
-  if (uids.length === 0) return [];
-  const docs = await Promise.all(uids.map((id) => db.collection('users').doc(id).get()));
-  const scoreDocs = await Promise.all(uids.map((id) => db.collection('personalityScores').doc(id).get()));
-  const center = [userLocation.latitude, userLocation.longitude];
-
-  return docs
-    .map((d, idx) => {
-      if (!d.exists) return null;
-      const u = d.data();
-      const scores = scoreDocs[idx].exists ? scoreDocs[idx].data() : null;
-      const dist = u.location
-        ? haversineKm(center[0], center[1], u.location.latitude, u.location.longitude)
-        : 999;
+      const scores = scoreSnap.data();
+      const matchScore = computeMatchScore(preferences, scores);
       return {
-        uid: d.id,
-        name: u.name,
-        age: u.age,
-        bio: u.bio || '',
-        photos: u.photos || [],
-        distance: Math.round(dist * 10) / 10,
-        matchScore: scores ? matchScore(pref, scores) : 0,
+        ...candidate,
+        matchScore,
+        scores,
       };
     })
     .filter(Boolean);
 }
 
-// ── swipe ──
+function sortRankedProfiles(rankedProfiles) {
+  return rankedProfiles.sort((a, b) => b.matchScore - a.matchScore || a.distanceMeters - b.distanceMeters);
+}
 
-exports.swipeUser = onCall(async (req) => {
-  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign-in required');
-  const uid = req.auth.uid;
-  const { targetId, direction } = req.data || {};
+async function hydrateProfilesByUid(uids, requesterPreferences, requesterLocation) {
+  if (!uids.length) {
+    return [];
+  }
+
+  const userSnapshots = await Promise.all(uids.map((id) => db.collection('users').doc(id).get()));
+  const scoreSnapshots = await Promise.all(
+    uids.map((id) => db.collection('personalityScores').doc(id).get()),
+  );
+
+  return uids
+    .map((uid, idx) => {
+      const userSnap = userSnapshots[idx];
+      const scoreSnap = scoreSnapshots[idx];
+      if (!userSnap.exists || !scoreSnap.exists) {
+        return null;
+      }
+
+      const profile = userSnap.data();
+      if (!profile?.location) {
+        return null;
+      }
+
+      const distanceMeters = haversineMeters(
+        requesterLocation.latitude,
+        requesterLocation.longitude,
+        profile.location.latitude,
+        profile.location.longitude,
+      );
+
+      if (distanceMeters > RADIUS_METERS) {
+        return null;
+      }
+
+      return {
+        uid,
+        name: profile.name ?? '',
+        age: Number(profile.age ?? 0),
+        bio: profile.bio ?? '',
+        distanceMeters: Math.round(distanceMeters),
+        matchScore: computeMatchScore(requesterPreferences, scoreSnap.data()),
+      };
+    })
+    .filter(Boolean);
+}
+
+exports.getMatches = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Sign-in required');
+  }
+
+  const uid = request.auth.uid;
+  const userRef = db.collection('users').doc(uid);
+  const prefRef = db.collection('preferences').doc(uid);
+
+  const [userSnap, prefSnap] = await Promise.all([userRef.get(), prefRef.get()]);
+
+  if (!userSnap.exists || !prefSnap.exists) {
+    throw new HttpsError('failed-precondition', 'Complete onboarding first');
+  }
+
+  const user = userSnap.data();
+  const preferences = prefSnap.data();
+
+  if (!user?.onboardingCompleted) {
+    throw new HttpsError('failed-precondition', 'Complete onboarding first');
+  }
+
+  if (!user?.location) {
+    throw new HttpsError('failed-precondition', 'location_required');
+  }
+
+  const swipeRemaining = Number(user.swipeRemaining ?? 0);
+  if (swipeRemaining <= 0) {
+    return { matches: [], remaining: 0, message: 'no_swipes_remaining' };
+  }
+
+  const queueRef = db.collection('swipeQueues').doc(uid);
+  const queueSnap = await queueRef.get();
+
+  if (queueSnap.exists) {
+    const queueData = queueSnap.data();
+    const generatedAtMs = queueData.generatedAt?.toMillis?.() ?? 0;
+    const queueAge = Date.now() - generatedAtMs;
+    const queue = Array.isArray(queueData.queue) ? queueData.queue : [];
+    const lastCandidateIndex = Number(queueData.lastCandidateIndex ?? 0);
+
+    if (queueAge <= QUEUE_TTL_MS && lastCandidateIndex < queue.length) {
+      const sliceSize = Math.min(MAX_QUEUE_SIZE, swipeRemaining);
+      const queuedIds = queue.slice(lastCandidateIndex, lastCandidateIndex + sliceSize);
+      const matches = await hydrateProfilesByUid(queuedIds, preferences, user.location);
+
+      return { matches, remaining: swipeRemaining };
+    }
+  }
+
+  const swipedIds = await getAlreadySwipedIds(uid);
+  const baseCandidates = await queryCandidatesWithin25km({
+    userLocation: user.location,
+    uid,
+    minAge: Number(preferences.minAge ?? 18),
+    maxAge: Number(preferences.maxAge ?? 99),
+    swipedIds,
+  });
+
+  const rankedCandidates = await buildRankedProfiles(baseCandidates, preferences);
+  const priorityOrder = ensurePriorityOrder(preferences.priorityOrder);
+
+  let prioritizedSet = [];
+
+  for (const trait of priorityOrder) {
+    const threshold = getDesiredThreshold(preferences, trait);
+    const candidatesForTrait = rankedCandidates.filter((candidate) =>
+      Number(candidate.scores?.[trait] ?? -1) >= threshold,
+    );
+
+    if (candidatesForTrait.length > 0) {
+      prioritizedSet = candidatesForTrait;
+      break;
+    }
+  }
+
+  if (!prioritizedSet.length) {
+    prioritizedSet = rankedCandidates;
+  }
+
+  const queueProfiles = sortRankedProfiles(prioritizedSet).slice(0, MAX_QUEUE_SIZE).map((profile) => ({
+    uid: profile.uid,
+    name: profile.name,
+    age: profile.age,
+    bio: profile.bio,
+    distanceMeters: profile.distanceMeters,
+    matchScore: profile.matchScore,
+  }));
+
+  await queueRef.set({
+    queue: queueProfiles.map((profile) => profile.uid),
+    generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    lastCandidateIndex: 0,
+  });
+
+  return {
+    matches: queueProfiles.slice(0, Math.min(MAX_QUEUE_SIZE, swipeRemaining)),
+    remaining: swipeRemaining,
+  };
+});
+
+exports.swipe = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Sign-in required');
+  }
+
+  const uid = request.auth.uid;
+  const { targetId, direction } = request.data || {};
+
   if (!targetId || !['left', 'right'].includes(direction)) {
-    throw new HttpsError('invalid-argument', 'Bad payload');
+    throw new HttpsError('invalid-argument', 'Expected { targetId, direction: "left"|"right" }');
   }
 
   const userRef = db.collection('users').doc(uid);
+  const queueRef = db.collection('swipeQueues').doc(uid);
 
-  let newRemaining;
-  await db.runTransaction(async (tx) => {
-    const userSnap = await tx.get(userRef);
-    const user = userSnap.data();
-    if ((user.swipeRemaining || 0) <= 0) {
+  const swipeRemaining = await db.runTransaction(async (transaction) => {
+    const [userSnap, queueSnap] = await Promise.all([transaction.get(userRef), transaction.get(queueRef)]);
+
+    if (!userSnap.exists) {
+      throw new HttpsError('failed-precondition', 'User profile not found');
+    }
+
+    const currentRemaining = Number(userSnap.data().swipeRemaining ?? 0);
+    if (currentRemaining <= 0) {
       throw new HttpsError('resource-exhausted', 'no_swipes');
     }
-    newRemaining = Math.max(0, (user.swipeRemaining || 0) - 1);
-    tx.update(userRef, { swipeRemaining: newRemaining });
-    tx.set(db.collection('swipes').doc(), {
+
+    transaction.set(db.collection('swipes').doc(), {
       swiperId: uid,
       targetId,
       direction,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+
+    const nextRemaining = currentRemaining - 1;
+    transaction.update(userRef, { swipeRemaining: nextRemaining });
+
+    if (queueSnap.exists) {
+      const queueData = queueSnap.data();
+      const queue = Array.isArray(queueData.queue) ? queueData.queue : [];
+      const lastCandidateIndex = Number(queueData.lastCandidateIndex ?? 0);
+      const currentPointerId = queue[lastCandidateIndex];
+
+      if (currentPointerId === targetId) {
+        transaction.update(queueRef, { lastCandidateIndex: lastCandidateIndex + 1 });
+      } else {
+        const filteredQueue = queue.filter((candidateUid) => candidateUid !== targetId);
+        transaction.set(
+          queueRef,
+          {
+            ...queueData,
+            queue: filteredQueue,
+            lastCandidateIndex: Math.min(lastCandidateIndex, filteredQueue.length),
+          },
+          { merge: true },
+        );
+      }
+    }
+
+    return nextRemaining;
   });
 
-  // Update queue pointer
-  const queueRef = db.collection('swipeQueues').doc(uid);
-  const queueSnap = await queueRef.get();
-  if (queueSnap.exists) {
-    const qData = queueSnap.data();
-    const idx = (qData.lastCandidateIndex || 0) + 1;
-    await queueRef.update({ lastCandidateIndex: idx });
-  }
-
-  // Check for mutual match
   let matched = false;
   if (direction === 'right') {
     const reciprocal = await db
@@ -255,53 +386,53 @@ exports.swipeUser = onCall(async (req) => {
       .where('direction', '==', 'right')
       .limit(1)
       .get();
-    if (!reciprocal.empty) {
-      matched = true;
-      // Create match document
-      const users = [uid, targetId].sort();
-      const matchId = users.join('_');
-      const matchRef = db.collection('matches').doc(matchId);
-      const existing = await matchRef.get();
-      if (!existing.exists) {
-        await matchRef.set({
-          users,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
+    matched = !reciprocal.empty;
+  }
+
+  return { swipeRemaining, matched };
+});
+
+exports.resetSwipes = onSchedule('every 24 hours', async () => {
+  const usersSnapshot = await db.collection('users').get();
+  const resetAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + 24 * 60 * 60 * 1000));
+
+  let batch = db.batch();
+  let opCount = 0;
+
+  for (const userDoc of usersSnapshot.docs) {
+    batch.update(userDoc.ref, {
+      swipeRemaining: MAX_QUEUE_SIZE,
+      swipeResetAt: resetAt,
+    });
+    opCount += 1;
+
+    if (opCount === 450) {
+      await batch.commit();
+      batch = db.batch();
+      opCount = 0;
     }
   }
 
-  return { remaining: newRemaining, matched };
-});
+  if (opCount > 0) {
+    await batch.commit();
+  }
 
-// ── Scheduled reset every 24h ──
+  const queueSnapshot = await db.collection('swipeQueues').get();
+  let deleteBatch = db.batch();
+  let deleteCount = 0;
 
-exports.resetSwipeQueues = onSchedule('every 24 hours', async () => {
-  const users = await db.collection('users').get();
-  const batch = db.batch();
-  const resetAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + 24 * 60 * 60 * 1000));
-  users.docs.forEach((d) => {
-    batch.update(d.ref, { swipeRemaining: 25, swipeResetAt: resetAt });
-  });
-  await batch.commit();
+  for (const queueDoc of queueSnapshot.docs) {
+    deleteBatch.delete(queueDoc.ref);
+    deleteCount += 1;
 
-  // Delete all swipeQueues to force regeneration
-  const queues = await db.collection('swipeQueues').get();
-  const qBatch = db.batch();
-  queues.docs.forEach((d) => qBatch.delete(d.ref));
-  await qBatch.commit();
-});
+    if (deleteCount === 450) {
+      await deleteBatch.commit();
+      deleteBatch = db.batch();
+      deleteCount = 0;
+    }
+  }
 
-// ── Manual reset for testing ──
-
-exports.resetSwipeQueueForUser = onCall(async (req) => {
-  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign-in required');
-  const uid = req.data?.userId || req.auth.uid;
-  await db.collection('users').doc(uid).update({
-    swipeRemaining: 25,
-    swipeResetAt: admin.firestore.Timestamp.fromDate(new Date(Date.now() + 24 * 60 * 60 * 1000)),
-  });
-  // Clear queue
-  await db.collection('swipeQueues').doc(uid).delete().catch(() => {});
-  return { ok: true };
+  if (deleteCount > 0) {
+    await deleteBatch.commit();
+  }
 });
