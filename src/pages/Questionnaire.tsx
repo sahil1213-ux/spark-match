@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getCurrentUserId, saveQuestionnaire } from '@/lib/store';
 import { Button } from '@/components/ui/button';
-import { computePersonalityScores, TRAITS, TraitKey, PreferenceLevels, mapDesiredLevel } from '@/lib/scoring';
+import { computePersonalityScores, TRAITS, TraitKey } from '@/lib/scoring';
 
 const likertQuestions: { trait: TraitKey; text: string }[] = [
   { trait: 'openness', text: 'I enjoy trying new activities.' },
@@ -14,7 +14,7 @@ const likertQuestions: { trait: TraitKey; text: string }[] = [
   { trait: 'extraversion', text: 'I feel energized around people.' },
   { trait: 'extraversion', text: 'I enjoy social events.' },
   { trait: 'extraversion', text: 'I like meeting new people.' },
-  { trait: 'agreeableness', text: 'I care about others\' feelings.' },
+  { trait: 'agreeableness', text: "I care about others' feelings." },
   { trait: 'agreeableness', text: 'I enjoy helping people.' },
   { trait: 'agreeableness', text: 'I try to avoid conflicts.' },
   { trait: 'neuroticism', text: 'I worry often.' },
@@ -23,7 +23,10 @@ const likertQuestions: { trait: TraitKey; text: string }[] = [
 ];
 
 const LIKERT = [1, 2, 3, 4, 5];
-const PREF_LEVELS: Array<'low' | 'medium' | 'high'> = ['low', 'medium', 'high'];
+
+function titleCase(trait: string) {
+  return trait.charAt(0).toUpperCase() + trait.slice(1);
+}
 
 export default function Questionnaire() {
   const navigate = useNavigate();
@@ -32,45 +35,99 @@ export default function Questionnaire() {
   const [age, setAge] = useState(25);
   const [gender, setGender] = useState<'Male' | 'Female' | 'Other'>('Female');
   const [answers, setAnswers] = useState<Record<number, number>>({});
-  const [prefLevels, setPrefLevels] = useState<PreferenceLevels>({
-    openness: 'medium', conscientiousness: 'medium', extraversion: 'medium',
-    agreeableness: 'medium', neuroticism: 'medium',
+  const [desiredScores, setDesiredScores] = useState<Record<TraitKey, number>>({
+    openness: 67,
+    conscientiousness: 92,
+    extraversion: 80,
+    agreeableness: 83,
+    neuroticism: 92,
   });
-  const [priorityOrder] = useState<TraitKey[]>([...TRAITS]);
+  const [priorityOrder, setPriorityOrder] = useState<TraitKey[]>([...TRAITS]);
+  const [draggedTrait, setDraggedTrait] = useState<TraitKey | null>(null);
 
-  const setAnswer = (idx: number, val: number) => setAnswers(a => ({ ...a, [idx]: val }));
+  const setAnswer = (idx: number, val: number) => setAnswers((a) => ({ ...a, [idx]: val }));
+
+  const liveScores = useMemo(() => {
+    const rawAnswers: Record<TraitKey, number[]> = {
+      openness: [],
+      conscientiousness: [],
+      extraversion: [],
+      agreeableness: [],
+      neuroticism: [],
+    };
+
+    likertQuestions.forEach((q, i) => {
+      rawAnswers[q.trait].push(answers[i] ?? 3);
+    });
+
+    return computePersonalityScores(rawAnswers);
+  }, [answers]);
 
   const canNext = () => {
     if (step === 0) return bio.trim().length > 0;
     if (step >= 1 && step <= 3) {
       const start = (step - 1) * 5;
       const end = Math.min(start + 5, likertQuestions.length);
-      return Array.from({ length: end - start }, (_, i) => start + i).every(i => answers[i] !== undefined);
+      return Array.from({ length: end - start }, (_, i) => start + i).every((i) => answers[i] !== undefined);
     }
+
+    if (step === 4) {
+      return priorityOrder.length === TRAITS.length;
+    }
+
     return true;
   };
 
   const finish = async () => {
     const userId = getCurrentUserId();
     if (!userId) return;
+
     const rawAnswers: Record<TraitKey, number[]> = {
-      openness: [], conscientiousness: [], extraversion: [], agreeableness: [], neuroticism: [],
+      openness: [],
+      conscientiousness: [],
+      extraversion: [],
+      agreeableness: [],
+      neuroticism: [],
     };
+
     likertQuestions.forEach((q, i) => {
       rawAnswers[q.trait].push(answers[i] ?? 3);
     });
+
     const scores = computePersonalityScores(rawAnswers);
+
     await saveQuestionnaire(userId, {
-      bio, age, gender, lat: 0, lon: 0,
-      scores, preferenceLevels: prefLevels, priorityOrder,
-      minAge: 18, maxAge: 99,
+      bio,
+      age,
+      gender,
+      lat: 0,
+      lon: 0,
+      scores,
+      desiredScores,
+      priorityOrder,
+      minAge: 18,
+      maxAge: 99,
     });
+
     navigate('/photos');
   };
 
   const next = () => {
-    if (step < 4) setStep(s => s + 1);
+    if (step < 4) setStep((s) => s + 1);
     else void finish();
+  };
+
+  const handleDrop = (targetTrait: TraitKey) => {
+    if (!draggedTrait || draggedTrait === targetTrait) return;
+
+    setPriorityOrder((prev) => {
+      const withoutDragged = prev.filter((trait) => trait !== draggedTrait);
+      const targetIndex = withoutDragged.indexOf(targetTrait);
+      withoutDragged.splice(targetIndex, 0, draggedTrait);
+      return withoutDragged;
+    });
+
+    setDraggedTrait(null);
   };
 
   return (
@@ -79,13 +136,32 @@ export default function Questionnaire() {
         {step === 0 && (
           <>
             <h2 className="text-2xl font-heading font-bold mb-6">About You</h2>
-            <textarea placeholder="Short bio..." value={bio} onChange={e => setBio(e.target.value)} className="w-full h-20 border rounded-xl p-3 bg-card mb-4" />
+            <textarea
+              placeholder="Short bio..."
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+              className="w-full h-20 border rounded-xl p-3 bg-card mb-4"
+            />
             <label className="text-sm text-muted-foreground mb-1">Age</label>
-            <input type="number" value={age} onChange={e => setAge(Number(e.target.value))} className="border rounded-xl p-3 bg-card mb-4 w-24" />
+            <input
+              type="number"
+              value={age}
+              onChange={(e) => setAge(Number(e.target.value))}
+              className="border rounded-xl p-3 bg-card mb-4 w-24"
+            />
             <label className="text-sm text-muted-foreground mb-1">Gender</label>
             <div className="flex gap-2 mb-4">
-              {(['Male', 'Female', 'Other'] as const).map(g => (
-                <button key={g} type="button" onClick={() => setGender(g)} className={`flex-1 py-2.5 rounded-xl text-sm ${gender === g ? 'gradient-coral text-primary-foreground' : 'bg-secondary'}`}>{g}</button>
+              {(['Male', 'Female', 'Other'] as const).map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => setGender(g)}
+                  className={`flex-1 py-2.5 rounded-xl text-sm ${
+                    gender === g ? 'gradient-coral text-primary-foreground' : 'bg-secondary'
+                  }`}
+                >
+                  {g}
+                </button>
               ))}
             </div>
           </>
@@ -105,8 +181,17 @@ export default function Questionnaire() {
                     <div key={idx}>
                       <p className="text-sm font-medium mb-2">{q.text}</p>
                       <div className="flex gap-2">
-                        {LIKERT.map(v => (
-                          <button key={v} type="button" onClick={() => setAnswer(idx, v)} className={`w-10 h-10 rounded-full text-sm font-bold ${answers[idx] === v ? 'gradient-coral text-primary-foreground' : 'bg-secondary'}`}>{v}</button>
+                        {LIKERT.map((v) => (
+                          <button
+                            key={v}
+                            type="button"
+                            onClick={() => setAnswer(idx, v)}
+                            className={`w-10 h-10 rounded-full text-sm font-bold ${
+                              answers[idx] === v ? 'gradient-coral text-primary-foreground' : 'bg-secondary'
+                            }`}
+                          >
+                            {v}
+                          </button>
                         ))}
                       </div>
                     </div>
@@ -119,23 +204,58 @@ export default function Questionnaire() {
 
         {step === 4 && (
           <>
-            <h2 className="text-2xl font-heading font-bold mb-6">Partner Preferences</h2>
-            <div className="space-y-4 flex-1">
-              {TRAITS.map(trait => (
-                <div key={trait}>
-                  <p className="text-sm font-medium capitalize mb-1">{trait}</p>
-                  <div className="flex gap-2">
-                    {PREF_LEVELS.map(lvl => (
-                      <button key={lvl} type="button" onClick={() => setPrefLevels(p => ({ ...p, [trait]: lvl }))} className={`flex-1 py-2 rounded-xl text-sm capitalize ${prefLevels[trait] === lvl ? 'gradient-coral text-primary-foreground' : 'bg-secondary'}`}>{lvl}</button>
-                    ))}
+            <h2 className="text-2xl font-heading font-bold mb-2">Partner Preferences</h2>
+            <p className="text-xs text-muted-foreground mb-4">
+              Drag cards to set 1st to 5th priority. Matching checks 1st priority first and only falls back if no one qualifies.
+            </p>
+
+            <div className="space-y-3 flex-1">
+              {priorityOrder.map((trait, index) => (
+                <div
+                  key={trait}
+                  draggable
+                  onDragStart={() => setDraggedTrait(trait)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => handleDrop(trait)}
+                  className="rounded-xl border bg-card p-3"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-semibold">
+                      {index + 1}. {titleCase(trait)}
+                    </p>
+                    <span className="text-xs text-muted-foreground">Your score: {liveScores[trait]}</span>
                   </div>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={desiredScores[trait]}
+                      onChange={(e) =>
+                        setDesiredScores((prev) => ({
+                          ...prev,
+                          [trait]: Number(e.target.value),
+                        }))
+                      }
+                      className="w-full"
+                    />
+                    <span className="text-sm font-medium w-9 text-right">{desiredScores[trait]}</span>
+                  </div>
+                  {index === 0 && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Candidates must have {titleCase(trait)} ≥ {desiredScores[trait]} before lower priorities are checked.
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
           </>
         )}
 
-        <Button onClick={next} disabled={!canNext()} className="w-full mt-6 gradient-coral">{step < 4 ? 'Next' : 'Finish'}</Button>
+        <Button onClick={next} disabled={!canNext()} className="w-full mt-6 gradient-coral">
+          {step < 4 ? 'Next' : 'Finish'}
+        </Button>
       </div>
     </div>
   );
