@@ -22,7 +22,7 @@ import {
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { auth, db, functions } from '@/lib/firebase';
-import { PreferenceLevels, PersonalityScores, TraitKey, mapDesiredLevel } from '@/lib/scoring';
+import { PersonalityScores, TraitKey } from '@/lib/scoring';
 import { geohashForLocation } from 'geofire-common';
 
 // ── Types ──
@@ -48,8 +48,9 @@ export interface MatchResult {
   name: string;
   age: number;
   bio: string;
-  photos: string[];
-  distance: number;
+  photos?: string[];
+  distance?: number;
+  distanceMeters?: number;
   matchScore: number;
 }
 
@@ -176,7 +177,7 @@ export async function saveQuestionnaire(userId: string, payload: {
   lat: number;
   lon: number;
   scores: PersonalityScores;
-  preferenceLevels: PreferenceLevels;
+  desiredScores: Record<TraitKey, number>;
   priorityOrder: TraitKey[];
   minAge: number;
   maxAge: number;
@@ -193,11 +194,11 @@ export async function saveQuestionnaire(userId: string, payload: {
   await setDoc(doc(db, 'personalityScores', userId), payload.scores);
 
   await setDoc(doc(db, 'preferences', userId), {
-    desiredOpenness: mapDesiredLevel(payload.preferenceLevels.openness),
-    desiredConscientiousness: mapDesiredLevel(payload.preferenceLevels.conscientiousness),
-    desiredExtraversion: mapDesiredLevel(payload.preferenceLevels.extraversion),
-    desiredAgreeableness: mapDesiredLevel(payload.preferenceLevels.agreeableness),
-    desiredNeuroticism: mapDesiredLevel(payload.preferenceLevels.neuroticism),
+    desiredOpenness: payload.desiredScores.openness,
+    desiredConscientiousness: payload.desiredScores.conscientiousness,
+    desiredExtraversion: payload.desiredScores.extraversion,
+    desiredAgreeableness: payload.desiredScores.agreeableness,
+    desiredNeuroticism: payload.desiredScores.neuroticism,
     priorityOrder: payload.priorityOrder,
     minAge: payload.minAge,
     maxAge: payload.maxAge,
@@ -214,17 +215,26 @@ export async function getMatches(): Promise<{ matches: MatchResult[]; remaining:
   if (Array.isArray(data)) {
     return { matches: data, remaining: 25 };
   }
+  const normalized = (data.matches ?? []).map((match) => ({
+    ...match,
+    distance: match.distance ?? (match.distanceMeters != null ? match.distanceMeters / 1000 : undefined),
+  }));
+
   return {
-    matches: data.matches ?? [],
+    matches: normalized,
     remaining: data.remaining ?? 0,
     message: data.message,
   };
 }
 
 export async function swipeUser(targetId: string, direction: 'left' | 'right') {
-  const call = httpsCallable(functions, 'swipeUser');
+  const call = httpsCallable(functions, 'swipe');
   const result = await call({ targetId, direction });
-  return result.data as { remaining: number; matched: boolean };
+  const data = result.data as { remaining?: number; swipeRemaining?: number; matched?: boolean };
+  return {
+    remaining: data.remaining ?? data.swipeRemaining ?? 0,
+    matched: data.matched ?? false,
+  };
 }
 
 // ── Matches & Messages ──
