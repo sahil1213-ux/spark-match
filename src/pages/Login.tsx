@@ -11,25 +11,14 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleEmailLogin = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     try {
-      setError('');
       await loginUser(email, password);
       navigate('/home');
     } catch (err) {
       setError((err as Error).message || 'Login failed');
-    }
-  };
-
-  const handleProviderLogin = async (type: 'google' | 'apple') => {
-    try {
-      setError('');
-      if (type === 'google') await loginWithGoogle();
-      if (type === 'apple') await loginWithApple();
-      navigate('/home');
-    } catch (err) {
-      setError((err as Error).message || `Unable to login with ${type}`);
     }
   };
 
@@ -41,17 +30,12 @@ export default function Login() {
         </div>
         <h1 className="text-3xl font-heading font-bold text-foreground mb-1">Spark Match</h1>
 
-        <form onSubmit={handleEmailLogin} className="w-full space-y-4 mt-8">
+        <form onSubmit={handleLogin} className="w-full space-y-4 mt-8">
           <Input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required className="h-12 rounded-xl bg-card" />
           <Input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required className="h-12 rounded-xl bg-card" />
           {error && <p className="text-sm text-destructive text-center">{error}</p>}
-          <Button type="submit" className="w-full h-12 rounded-xl gradient-coral text-primary-foreground">Log In</Button>
+          <Button type="submit" className="w-full h-12 rounded-xl gradient-coral text-primary-foreground font-semibold text-base border-0">Log In</Button>
         </form>
-
-        <div className="w-full mt-4 space-y-2">
-          <Button variant="outline" className="w-full" onClick={() => handleProviderLogin('google')}>Continue with Google</Button>
-          <Button variant="outline" className="w-full" onClick={() => handleProviderLogin('apple')}>Continue with Apple</Button>
-        </div>
 
         <div className="mt-8 text-sm text-muted-foreground">
           Don't have an account? <button onClick={() => navigate('/signup')} className="text-primary font-semibold hover:underline">Sign Up</button>
