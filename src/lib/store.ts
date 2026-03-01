@@ -203,8 +203,8 @@ export async function listMessages(matchId: string) {
   const q = query(collection(db, 'messages'), where('matchId', '==', matchId));
   const snapshots = await getDocs(q);
   return snapshots.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .sort((a, b) => String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? '')));
+    .map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown> & { id: string }))
+    .sort((a, b) => String(a['createdAt'] ?? '').localeCompare(String(b['createdAt'] ?? '')));
 }
 
 export async function sendMessage(matchId: string, senderId: string, text: string) {

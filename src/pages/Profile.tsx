@@ -31,5 +31,16 @@ export default function Profile() {
 
   if (!user) return null;
 
-  return <div className="min-h-screen bg-background safe-top pb-24"><div className="max-w-sm mx-auto px-6 pt-6"><h1 className="text-xl font-heading font-bold mb-4">{user.name}</h1><p className="text-sm text-muted-foreground mb-2">{user.age} · {user.gender} · Looking for {user.preference}</p><textarea value={bio} onChange={e => setBio(e.target.value)} className="w-full h-24 border rounded-xl p-3" /><Button onClick={save} className="w-full mt-3">Save Bio</Button><Button onClick={out} variant="outline" className="w-full mt-3">Log Out</Button></div><BottomNav /></div>;
+  return (
+    <div className="min-h-screen bg-background safe-top pb-24">
+      <div className="max-w-sm mx-auto px-6 pt-6">
+        <h1 className="text-xl font-heading font-bold mb-4">{user.name}</h1>
+        <p className="text-sm text-muted-foreground mb-2">{user.age} · {user.gender}</p>
+        <textarea value={bio} onChange={e => setBio(e.target.value)} className="w-full h-24 border rounded-xl p-3 bg-card" />
+        <Button onClick={save} className="w-full mt-3">Save Bio</Button>
+        <Button onClick={out} variant="outline" className="w-full mt-3">Log Out</Button>
+      </div>
+      <BottomNav />
+    </div>
+  );
 }
