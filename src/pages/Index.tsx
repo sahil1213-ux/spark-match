@@ -1,18 +1,16 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getCurrentUser } from '@/lib/store';
 import { Heart } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 
 export default function Index() {
   const navigate = useNavigate();
+  const { user, loading } = useAuth();
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      const user = getCurrentUser();
-      navigate(user ? '/home' : '/login');
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, [navigate]);
+    if (loading) return;
+    navigate(user ? '/home' : '/login', { replace: true });
+  }, [loading, user, navigate]);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gradient-coral">
