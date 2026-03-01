@@ -25,6 +25,8 @@ import { auth, db, functions } from '@/lib/firebase';
 import { PreferenceLevels, PersonalityScores, TraitKey, mapDesiredLevel } from '@/lib/scoring';
 import { geohashForLocation } from 'geofire-common';
 
+// ── Types ──
+
 export interface UserProfile {
   id: string;
   uid: string;
@@ -46,17 +48,18 @@ export interface MatchResult {
   name: string;
   age: number;
   bio: string;
+  photos: string[];
   distance: number;
   matchScore: number;
 }
-
-const FILTERS_KEY = 'spark_filters';
 
 export interface Filters {
   ageMin: number;
   ageMax: number;
   gender: 'Male' | 'Female' | 'Any';
 }
+
+// ── Auth ──
 
 async function ensureUserDoc(base: Partial<UserProfile> = {}) {
   const user = auth.currentUser;
@@ -76,7 +79,6 @@ async function ensureUserDoc(base: Partial<UserProfile> = {}) {
       swipeRemaining: 25,
       swipeResetAt: Timestamp.fromDate(new Date(Date.now() + 24 * 60 * 60 * 1000)),
       photos: [],
-      ...(base.location ? { location: base.location } : {}),
     });
   }
   return user.uid;
@@ -111,6 +113,20 @@ export async function loginWithApple() {
   await ensureUserDoc();
 }
 
+export async function logout() {
+  await signOut(auth);
+}
+
+export function getCurrentUser() {
+  return auth.currentUser;
+}
+
+export function getCurrentUserId() {
+  return auth.currentUser?.uid ?? null;
+}
+
+// ── Profile ──
+
 export async function getCurrentUserProfile(): Promise<UserProfile | null> {
   const user = auth.currentUser;
   if (!user) return null;
@@ -119,9 +135,39 @@ export async function getCurrentUserProfile(): Promise<UserProfile | null> {
   return { id: user.uid, ...snapshot.data() } as UserProfile;
 }
 
-export function getCurrentUserId() {
-  return auth.currentUser?.uid ?? null;
+export async function getUserById(userId: string) {
+  const snapshot = await getDoc(doc(db, 'users', userId));
+  if (!snapshot.exists()) return null;
+  return { id: userId, ...snapshot.data() } as UserProfile;
 }
+
+export async function saveProfileBio(userId: string, bio: string) {
+  await updateDoc(doc(db, 'users', userId), { bio });
+}
+
+export async function uploadUserPhoto(userId: string, file: File) {
+  const asDataUrl = await new Promise<string>((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.readAsDataURL(file);
+  });
+  const userRef = doc(db, 'users', userId);
+  const snapshot = await getDoc(userRef);
+  const currentPhotos = (snapshot.data()?.photos ?? []) as string[];
+  await updateDoc(userRef, { photos: [...currentPhotos, asDataUrl].slice(0, 6) });
+  return asDataUrl;
+}
+
+// ── Location ──
+
+export async function updateUserLocation(userId: string, lat: number, lon: number) {
+  await updateDoc(doc(db, 'users', userId), {
+    location: new GeoPoint(lat, lon),
+    geohash: geohashForLocation([lat, lon]),
+  });
+}
+
+// ── Questionnaire ──
 
 export async function saveQuestionnaire(userId: string, payload: {
   bio: string;
@@ -158,45 +204,35 @@ export async function saveQuestionnaire(userId: string, payload: {
   });
 }
 
-export async function uploadUserPhoto(userId: string, file: File) {
-  const asDataUrl = await new Promise<string>((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.readAsDataURL(file);
-  });
-  const userRef = doc(db, 'users', userId);
-  const snapshot = await getDoc(userRef);
-  const currentPhotos = (snapshot.data()?.photos ?? []) as string[];
-  await updateDoc(userRef, { photos: [...currentPhotos, asDataUrl].slice(0, 6) });
-  return asDataUrl;
-}
+// ── Matching (Cloud Functions) ──
 
-export async function saveProfileBio(userId: string, bio: string) {
-  await updateDoc(doc(db, 'users', userId), { bio });
-}
-
-export async function getMatches(): Promise<MatchResult[]> {
+export async function getMatches(): Promise<{ matches: MatchResult[]; remaining: number; message?: string }> {
   const call = httpsCallable(functions, 'getMatches');
   const result = await call();
-  return (result.data ?? []) as MatchResult[];
+  const data = result.data as { matches?: MatchResult[]; remaining?: number; message?: string } | MatchResult[];
+  // Handle both old (array) and new (object) return formats
+  if (Array.isArray(data)) {
+    return { matches: data, remaining: 25 };
+  }
+  return {
+    matches: data.matches ?? [],
+    remaining: data.remaining ?? 0,
+    message: data.message,
+  };
 }
 
 export async function swipeUser(targetId: string, direction: 'left' | 'right') {
   const call = httpsCallable(functions, 'swipeUser');
   const result = await call({ targetId, direction });
-  return result.data as { remaining: number };
+  return result.data as { remaining: number; matched: boolean };
 }
+
+// ── Matches & Messages ──
 
 export async function getMatchesForUser(userId: string) {
   const matchesQuery = query(collection(db, 'matches'), where('users', 'array-contains', userId));
   const snapshots = await getDocs(matchesQuery);
   return snapshots.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<{ id: string; users: string[] }>;
-}
-
-export async function getUserById(userId: string) {
-  const snapshot = await getDoc(doc(db, 'users', userId));
-  if (!snapshot.exists()) return null;
-  return { id: userId, ...snapshot.data() } as UserProfile;
 }
 
 export async function listMessages(matchId: string) {
@@ -211,9 +247,9 @@ export async function sendMessage(matchId: string, senderId: string, text: strin
   await addDoc(collection(db, 'messages'), { matchId, senderId, text, createdAt: serverTimestamp() });
 }
 
-export async function logout() {
-  await signOut(auth);
-}
+// ── Filters (local) ──
+
+const FILTERS_KEY = 'spark_filters';
 
 export function getFilters(): Filters {
   const raw = localStorage.getItem(FILTERS_KEY);
@@ -222,8 +258,4 @@ export function getFilters(): Filters {
 
 export function setFilters(filters: Filters) {
   localStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
-}
-
-export function getCurrentUser() {
-  return auth.currentUser;
 }

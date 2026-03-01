@@ -10,6 +10,7 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // personalityScores: only the owner can read/write; Cloud Functions use admin SDK
     match /personalityScores/{uid} {
       allow read, write: if isOwner(uid);
     }
@@ -32,6 +33,12 @@ service cloud.firestore {
     match /messages/{messageId} {
       allow read, create: if signedIn();
       allow update, delete: if false;
+    }
+
+    // swipeQueues: only the owner; written by Cloud Functions via admin SDK
+    match /swipeQueues/{uid} {
+      allow read: if isOwner(uid);
+      allow write: if false; // only Cloud Functions write
     }
   }
 }
