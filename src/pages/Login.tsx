@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { loginUser } from '@/lib/store';
+import { loginUser, loginWithApple, loginWithGoogle } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Heart } from 'lucide-react';

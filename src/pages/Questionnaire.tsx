@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getCurrentUserId, saveQuestionnaire } from '@/lib/store';
 import { Button } from '@/components/ui/button';
+import { computePersonalityScores, PreferenceLevels, TRAITS, TraitKey } from '@/lib/scoring';
 
 const questions = [
   { id: 'q1', text: 'Coffee or tea?', options: ['Coffee', 'Tea'] },

@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { signupUser } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft } from 'lucide-react';
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -13,12 +12,11 @@ export default function Signup() {
     name: '',
     age: '',
     gender: 'Female' as 'Male' | 'Female' | 'Other',
-    preference: 'Male' as 'Male' | 'Female' | 'Any',
     bio: '',
   });
   const [error, setError] = useState('');
 
-  const update = (key: string, val: string) => setForm(f => ({ ...f, [key]: val }));
+  const update = (key: string, val: string) => setForm((f) => ({ ...f, [key]: val }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,9 +28,6 @@ export default function Signup() {
       setError((err as Error).message || 'Signup failed');
     }
   };
-
-  const genders: Array<'Male' | 'Female' | 'Other'> = ['Male', 'Female', 'Other'];
-  const prefs: Array<'Male' | 'Female' | 'Any'> = ['Male', 'Female', 'Any'];
 
   return (
     <div className="min-h-screen bg-background safe-top"><div className="max-w-sm mx-auto px-6 py-8">

@@ -9,6 +9,7 @@ const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_
 
 export interface UserProfile {
   id: string;
+  uid: string;
   email: string;
   name: string;
   age: number;
