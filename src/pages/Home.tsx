@@ -15,8 +15,10 @@ export default function Home() {
         const result = await getMatches();
         setCandidates(result.matches);
         setSwipedCount(25 - result.remaining);
-        if (result.message === 'no_more_profiles_today') {
-          setMessage('no More Profiles for Today');
+        if (result.message === 'no_more_cards_today') {
+          setMessage('No More Cards for Today');
+        } else if (result.message === 'no_profiles_for_first_priority') {
+          setMessage('No profiles found for your 1st priority right now.');
         }
       } catch (e) {
         console.error('Failed to load matches', e);
@@ -37,7 +39,7 @@ export default function Home() {
         setTimeout(() => setMatchPopup(null), 3000);
       }
       if (result.remaining <= 0) {
-        setMessage('no More Profiles for Today');
+        setMessage('No More Cards for Today');
       }
     } catch (e) {
       console.error('Swipe failed', e);

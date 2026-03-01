@@ -32,7 +32,6 @@ import { geohashForLocation } from 'geofire-common';
 const TRAITS: TraitKey[] = ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism'];
 const MAX_MATCHES = 25;
 const TRAIT_THRESHOLD = 80;
-const QUEUE_TTL_MS = 23 * 60 * 60 * 1000;
 
 // ── Types ──
 
@@ -286,75 +285,45 @@ export async function getMatches(): Promise<{ matches: MatchResult[]; remaining:
   const pref = prefSnap.data() as Record<string, unknown>;
 
   if (!user.onboardingCompleted) throw new Error('Complete onboarding first');
+
   const remaining = await maybeResetSwipeCounter(uid, user);
   if (remaining <= 0) {
-    return { matches: [], remaining: 0, message: 'no_more_profiles_today' };
+    return { matches: [], remaining: 0, message: 'no_more_cards_today' };
   }
 
   const swipedSnap = await getDocs(query(collection(db, 'swipes'), where('swiperId', '==', uid)));
   const swipedIds = new Set(swipedSnap.docs.map((d) => String(d.data().targetId)));
 
-  const queueRef = doc(db, 'swipeQueues', uid);
-  const queueSnap = await getDoc(queueRef);
-
-  if (queueSnap.exists()) {
-    const queueData = queueSnap.data() as { queue?: MatchResult[]; generatedAt?: Timestamp; lastCandidateIndex?: number };
-    const generatedAtMs = queueData.generatedAt?.toMillis() ?? 0;
-    const ageMs = Date.now() - generatedAtMs;
-    const pointer = Number(queueData.lastCandidateIndex ?? 0);
-    const queue = Array.isArray(queueData.queue)
-      ? queueData.queue.filter((candidate) => !swipedIds.has(candidate.uid))
-      : [];
-
-    if (ageMs <= QUEUE_TTL_MS && pointer < queue.length) {
-      return { matches: queue.slice(pointer, pointer + Math.min(MAX_MATCHES, remaining)), remaining };
-    }
-  }
-
   const candidates = await fetchCandidateUsers(uid, Number(pref.minAge ?? 18), Number(pref.maxAge ?? 99), swipedIds);
-  const priorityOrder = (Array.isArray(pref.priorityOrder) ? pref.priorityOrder : TRAITS).filter((t): t is TraitKey => TRAITS.includes(t as TraitKey));
-  const completePriorityOrder = [...priorityOrder, ...TRAITS.filter((t) => !priorityOrder.includes(t))];
 
-  let pool: (MatchResult & { scores: Record<TraitKey, number> })[] = [];
+  const priorityOrder = (Array.isArray(pref.priorityOrder) ? pref.priorityOrder : TRAITS).filter(
+    (t): t is TraitKey => TRAITS.includes(t as TraitKey),
+  );
+  const completedPriorityOrder = [...priorityOrder, ...TRAITS.filter((t) => !priorityOrder.includes(t))];
+  const firstPriority = completedPriorityOrder[0] ?? 'agreeableness';
 
-  for (const trait of completePriorityOrder) {
-    const filtered = candidates.filter((candidate) => Number(candidate.scores[trait] ?? -1) >= TRAIT_THRESHOLD);
-    if (filtered.length > 0) {
-      pool = filtered;
-      break;
-    }
-  }
-
-  if (pool.length === 0) {
-    pool = candidates;
-  }
-
-  const ranked = pool
+  const ranked = candidates
+    .filter((candidate) => Number(candidate.scores[firstPriority] ?? -1) >= TRAIT_THRESHOLD)
     .map((candidate) => ({
       uid: candidate.uid,
       name: candidate.name,
       age: candidate.age,
       bio: candidate.bio,
       photos: candidate.photos,
-      matchScore: computeMatchScore(candidate.scores, completePriorityOrder),
+      matchScore: computeMatchScore(candidate.scores, completedPriorityOrder),
     }))
     .sort((a, b) => b.matchScore - a.matchScore)
-    .slice(0, MAX_MATCHES);
+    .slice(0, Math.min(MAX_MATCHES, remaining));
 
-  await setDoc(queueRef, {
-    queue: ranked,
-    generatedAt: serverTimestamp(),
-    lastCandidateIndex: 0,
-  });
+  if (!ranked.length) {
+    return {
+      matches: [],
+      remaining,
+      message: 'no_profiles_for_first_priority',
+    };
+  }
 
-  return {
-    matches: ranked.slice(0, Math.min(MAX_MATCHES, remaining)),
-    remaining,
-    message:
-      ranked.length === 0
-        ? 'No candidates found nearby matching your current top priorities. Try updating priorities or expanding filters.'
-        : undefined,
-  };
+  return { matches: ranked, remaining };
 }
 
 export async function swipeUser(targetId: string, direction: 'left' | 'right') {
@@ -362,8 +331,6 @@ export async function swipeUser(targetId: string, direction: 'left' | 'right') {
   if (!uid) throw new Error('Unauthenticated');
 
   const userRef = doc(db, 'users', uid);
-  const queueRef = doc(db, 'swipeQueues', uid);
-
   const remaining = await runTransaction(db, async (tx) => {
     const userSnap = await tx.get(userRef);
     if (!userSnap.exists()) throw new Error('User profile not found');
@@ -391,19 +358,6 @@ export async function swipeUser(targetId: string, direction: 'left' | 'right') {
     const next = available - 1;
     tx.update(userRef, { swipeRemaining: next });
 
-    const queueSnap = await tx.get(queueRef);
-    if (queueSnap.exists()) {
-      const data = queueSnap.data() as { queue?: MatchResult[]; lastCandidateIndex?: number };
-      const queue = Array.isArray(data.queue) ? data.queue : [];
-      const pointer = Number(data.lastCandidateIndex ?? 0);
-      const current = queue[pointer];
-      if (current?.uid === targetId) {
-        tx.update(queueRef, { lastCandidateIndex: pointer + 1 });
-      } else {
-        const filtered = queue.filter((candidate) => candidate.uid !== targetId);
-        tx.set(queueRef, { queue: filtered, lastCandidateIndex: Math.min(pointer, filtered.length) }, { merge: true });
-      }
-    }
 
     return next;
   });
