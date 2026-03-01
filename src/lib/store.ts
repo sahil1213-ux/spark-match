@@ -300,10 +300,17 @@ export async function getMatches(): Promise<{ matches: MatchResult[]; remaining:
     (t): t is TraitKey => TRAITS.includes(t as TraitKey),
   );
   const completedPriorityOrder = [...priorityOrder, ...TRAITS.filter((t) => !priorityOrder.includes(t))];
-  const firstPriority = completedPriorityOrder[0] ?? 'agreeableness';
+  let prioritizedPool: (MatchResult & { scores: Record<TraitKey, number> })[] = [];
 
-  const ranked = candidates
-    .filter((candidate) => Number(candidate.scores[firstPriority] ?? -1) >= TRAIT_THRESHOLD)
+  for (const trait of completedPriorityOrder) {
+    const filtered = candidates.filter((candidate) => Number(candidate.scores[trait] ?? -1) >= TRAIT_THRESHOLD);
+    if (filtered.length > 0) {
+      prioritizedPool = filtered;
+      break;
+    }
+  }
+
+  const ranked = prioritizedPool
     .map((candidate) => ({
       uid: candidate.uid,
       name: candidate.name,
@@ -319,7 +326,7 @@ export async function getMatches(): Promise<{ matches: MatchResult[]; remaining:
     return {
       matches: [],
       remaining,
-      message: 'no_profiles_for_first_priority',
+      message: 'no_profiles_for_priority_order',
     };
   }
 

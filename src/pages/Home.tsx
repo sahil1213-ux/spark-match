@@ -17,8 +17,8 @@ export default function Home() {
         setSwipedCount(25 - result.remaining);
         if (result.message === 'no_more_cards_today') {
           setMessage('No More Cards for Today');
-        } else if (result.message === 'no_profiles_for_first_priority') {
-          setMessage('No profiles found for your 1st priority right now.');
+        } else if (result.message === 'no_profiles_for_priority_order') {
+          setMessage('No profiles found for your priority order right now.');
         }
       } catch (e) {
         console.error('Failed to load matches', e);
