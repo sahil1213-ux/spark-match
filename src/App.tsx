@@ -16,10 +16,34 @@ import Filters from "./pages/Filters";
 import NotFound from "./pages/NotFound";
 import { AuthProvider } from "./context/AuthContext";
 import { ProtectedRoute, PublicOnlyRoute } from "./components/RouteGuards";
+import { firebaseConfigError } from "./lib/firebase";
 
 const queryClient = new QueryClient();
 
-const App = () => (
+const MissingFirebaseConfig = () => (
+  <div className="min-h-screen flex items-center justify-center bg-slate-950 p-6">
+    <div className="max-w-2xl rounded-xl border border-slate-800 bg-slate-900 p-6 text-slate-100 shadow-xl">
+      <h1 className="text-xl font-semibold">Firebase configuration is missing</h1>
+      <p className="mt-3 text-sm text-slate-300">The app cannot initialize authentication because required Vite environment variables are not set.</p>
+      <p className="mt-3 text-xs text-red-300">{firebaseConfigError}</p>
+      <pre className="mt-4 overflow-x-auto rounded bg-slate-950 p-3 text-xs text-slate-200">{`Create .env in project root with:
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=...
+VITE_FIREBASE_PROJECT_ID=...
+VITE_FIREBASE_STORAGE_BUCKET=...
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_APP_ID=...`}</pre>
+      <p className="mt-3 text-xs text-slate-400">After saving .env, stop and restart npm run dev.</p>
+    </div>
+  </div>
+);
+
+const App = () => {
+  if (firebaseConfigError) {
+    return <MissingFirebaseConfig />;
+  }
+
+  return (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <TooltipProvider>
@@ -43,6 +67,7 @@ const App = () => (
       </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>
-);
+  );
+};
 
 export default App;
