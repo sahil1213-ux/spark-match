@@ -23,7 +23,7 @@ import {
 import { httpsCallable } from 'firebase/functions';
 import { auth, db, functions } from '@/lib/firebase';
 import { PreferenceLevels, PersonalityScores, TraitKey, mapDesiredLevel } from '@/lib/scoring';
-import { geohashForLocation } from 'geofire-common';
+import { geohashForLocation } from '@/lib/geohash';
 
 export interface UserProfile {
   id: string;
