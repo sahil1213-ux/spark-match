@@ -10,7 +10,7 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // personalityScores: only the owner can read/write; Cloud Functions use admin SDK
+    // Private archive for owner only; Spark-plan matching reads users.matchingScores instead.
     match /personalityScores/{uid} {
       allow read, write: if isOwner(uid);
     }
@@ -27,7 +27,8 @@ service cloud.firestore {
 
     match /matches/{matchId} {
       allow read: if signedIn() && request.auth.uid in resource.data.users;
-      allow write: if false;
+      allow create: if signedIn() && request.auth.uid in request.resource.data.users;
+      allow update, delete: if false;
     }
 
     match /messages/{messageId} {
@@ -35,10 +36,8 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // swipeQueues: only the owner; written by Cloud Functions via admin SDK
     match /swipeQueues/{uid} {
-      allow read: if isOwner(uid);
-      allow write: if false; // only Cloud Functions write
+      allow read, write: if isOwner(uid);
     }
   }
 }
