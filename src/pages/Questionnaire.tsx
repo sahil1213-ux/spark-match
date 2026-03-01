@@ -1,82 +1,137 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getCurrentUser, setCurrentUser } from '@/lib/store';
+import { getCurrentUserId, saveQuestionnaire } from '@/lib/store';
 import { Button } from '@/components/ui/button';
+import { computePersonalityScores, PreferenceLevels, TRAITS, TraitKey } from '@/lib/scoring';
 
-const questions = [
-  { id: 'q1', text: 'Coffee or tea?', options: ['Coffee', 'Tea'] },
-  { id: 'q2', text: 'Weekend plans?', options: ['Outing', 'Netflix'] },
-  { id: 'q3', text: 'Favorite activity?', options: ['Sports', 'Movies', 'Reading', 'Travel'] },
-  { id: 'q4', text: 'Dogs or cats?', options: ['Dogs', 'Cats', 'Both'] },
-  { id: 'q5', text: 'Morning or night?', options: ['Morning', 'Night'] },
-  { id: 'q6', text: 'Cooking style?', options: ['Home chef', 'Takeout fan', 'Foodie explorer'] },
-];
+const traitQuestions: Record<TraitKey, string[]> = {
+  openness: ['I enjoy trying new activities.', 'I seek creative experiences.', 'I prefer variety over routine.'],
+  conscientiousness: ['I plan ahead.', 'I finish what I start.', 'I stay organized.'],
+  extraversion: ['I feel energized around people.', 'I enjoy social events.', 'I like meeting new people.'],
+  agreeableness: ["I care about others' feelings.", 'I enjoy helping people.', 'I try to avoid conflicts.'],
+  neuroticism: ['I worry often.', 'I feel stressed easily.', 'I get anxious in new situations.'],
+};
+
+const pageTraits: TraitKey[][] = [['openness', 'conscientiousness'], ['extraversion', 'agreeableness'], ['neuroticism']];
 
 export default function Questionnaire() {
   const navigate = useNavigate();
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [step, setStep] = useState(0);
+  const [page, setPage] = useState(0);
+  const [bio, setBio] = useState('');
+  const [age, setAge] = useState(24);
+  const [gender, setGender] = useState<'Male' | 'Female' | 'Other'>('Other');
+  const [location, setLocation] = useState({ lat: 0, lon: 0 });
+  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [preferenceLevels, setPreferenceLevels] = useState<PreferenceLevels>({
+    openness: 'medium', conscientiousness: 'medium', extraversion: 'medium', agreeableness: 'medium', neuroticism: 'medium',
+  });
+  const [priorityOrder, setPriorityOrder] = useState<TraitKey[]>([...TRAITS]);
 
-  const current = questions[step];
-  const progress = ((step + 1) / questions.length) * 100;
+  const setAnswer = (key: string, value: number) => setAnswers((prev) => ({ ...prev, [key]: value }));
 
-  const select = (val: string) => {
-    setAnswers(a => ({ ...a, [current.id]: val.toLowerCase() }));
-  };
-
-  const next = () => {
-    if (step < questions.length - 1) {
-      setStep(s => s + 1);
-    } else {
-      const user = getCurrentUser();
-      if (user) {
-        setCurrentUser({ ...user, questionnaire: answers });
+  const detectLocation = async () => {
+    try {
+      if ('geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition((pos) => {
+          setLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+        });
       }
-      navigate('/photos');
+    } catch {
+      // no-op fallback for browsers without geolocation permission
     }
   };
 
+  const submit = async () => {
+    const uid = getCurrentUserId();
+    if (!uid) return;
+    const grouped = TRAITS.reduce((acc, trait) => {
+      acc[trait] = traitQuestions[trait].map((_, idx) => answers[`${trait}_${idx}`] ?? 3);
+      return acc;
+    }, {} as Record<TraitKey, number[]>);
+    const scores = computePersonalityScores(grouped);
+
+    await saveQuestionnaire(uid, {
+      bio,
+      age,
+      gender,
+      lat: location.lat,
+      lon: location.lon,
+      scores,
+      preferenceLevels,
+      priorityOrder,
+      minAge: 18,
+      maxAge: 99,
+    });
+
+    navigate('/photos');
+  };
+
   return (
-    <div className="min-h-screen bg-background safe-top flex flex-col">
-      <div className="max-w-sm mx-auto px-6 py-8 flex-1 flex flex-col">
-        {/* Progress */}
-        <div className="w-full h-1.5 bg-secondary rounded-full mb-8">
-          <div
-            className="h-full gradient-coral rounded-full transition-all duration-300"
-            style={{ width: `${progress}%` }}
-          />
+    <div className="min-h-screen bg-background safe-top">
+      <div className="max-w-md mx-auto px-6 py-8 space-y-6">
+        <h2 className="text-2xl font-heading font-bold">Questionnaire - Page {page + 1} / 5</h2>
+
+        {page === 0 && (
+          <div className="space-y-3">
+            <textarea value={bio} onChange={(e) => setBio(e.target.value)} className="w-full border rounded-xl p-3" placeholder="Bio" />
+            <input type="number" className="w-full border rounded-xl p-3" value={age} onChange={(e) => setAge(Number(e.target.value))} />
+            <select className="w-full border rounded-xl p-3" value={gender} onChange={(e) => setGender(e.target.value as 'Male' | 'Female' | 'Other')}>
+              <option>Male</option><option>Female</option><option>Other</option>
+            </select>
+            <Button onClick={detectLocation} variant="outline" className="w-full">Use Current Location</Button>
+            <div className="grid grid-cols-2 gap-2">
+              <input className="border rounded-xl p-3" placeholder="Lat" value={location.lat} onChange={(e) => setLocation((p) => ({ ...p, lat: Number(e.target.value) }))} />
+              <input className="border rounded-xl p-3" placeholder="Lon" value={location.lon} onChange={(e) => setLocation((p) => ({ ...p, lon: Number(e.target.value) }))} />
+            </div>
+          </div>
+        )}
+
+        {[1, 2, 3].includes(page) && (
+          <div className="space-y-5">
+            {pageTraits[page - 1].map((trait) => (
+              <div key={trait} className="space-y-2">
+                <h3 className="font-semibold capitalize">{trait}</h3>
+                {traitQuestions[trait].map((question, idx) => (
+                  <div key={question} className="border rounded-xl p-3">
+                    <p className="text-sm mb-2">{question}</p>
+                    <div className="flex gap-2">{[1, 2, 3, 4, 5].map((value) => (
+                      <button key={value} className={`px-3 py-1 rounded ${answers[`${trait}_${idx}`] === value ? 'bg-primary text-primary-foreground' : 'bg-secondary'}`} onClick={() => setAnswer(`${trait}_${idx}`, value)}>{value}</button>
+                    ))}</div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {page === 4 && (
+          <div className="space-y-4">
+            {TRAITS.map((trait) => (
+              <div key={trait} className="border rounded-xl p-3 space-y-2">
+                <p className="font-medium capitalize">{trait}</p>
+                <select className="w-full border rounded-lg p-2" value={preferenceLevels[trait]} onChange={(e) => setPreferenceLevels((p) => ({ ...p, [trait]: e.target.value as 'low' | 'medium' | 'high' }))}>
+                  <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+                </select>
+                <select className="w-full border rounded-lg p-2" value={priorityOrder.indexOf(trait) + 1} onChange={(e) => {
+                  const rank = Number(e.target.value) - 1;
+                  const next = [...priorityOrder];
+                  const currentIndex = next.indexOf(trait);
+                  const displaced = next[rank];
+                  next[rank] = trait;
+                  next[currentIndex] = displaced;
+                  setPriorityOrder(next);
+                }}>
+                  {[1, 2, 3, 4, 5].map((rank) => <option key={rank} value={rank}>Priority {rank}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          {page > 0 && <Button variant="outline" onClick={() => setPage((p) => p - 1)} className="flex-1">Back</Button>}
+          {page < 4 ? <Button onClick={() => setPage((p) => p + 1)} className="flex-1">Next</Button> : <Button onClick={submit} className="flex-1 gradient-coral">Finish</Button>}
         </div>
-
-        <p className="text-xs text-muted-foreground mb-2 font-medium">
-          {step + 1} of {questions.length}
-        </p>
-        <h2 className="text-2xl font-heading font-bold text-foreground mb-8">
-          {current.text}
-        </h2>
-
-        <div className="space-y-3 flex-1">
-          {current.options.map(opt => (
-            <button
-              key={opt}
-              onClick={() => select(opt)}
-              className={`w-full py-4 px-5 rounded-2xl text-left font-medium transition-all ${
-                answers[current.id] === opt.toLowerCase()
-                  ? 'gradient-coral text-primary-foreground shadow-lg scale-[1.02]'
-                  : 'bg-card border border-border text-foreground hover:border-primary/30'
-              }`}
-            >
-              {opt}
-            </button>
-          ))}
-        </div>
-
-        <Button
-          onClick={next}
-          disabled={!answers[current.id]}
-          className="w-full h-12 rounded-xl gradient-coral text-primary-foreground font-semibold text-base border-0 mt-6 disabled:opacity-40"
-        >
-          {step < questions.length - 1 ? 'Next' : 'Finish'}
-        </Button>
       </div>
     </div>
   );

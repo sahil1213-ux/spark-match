@@ -14,11 +14,13 @@ import ChatList from "./pages/ChatList";
 import Chat from "./pages/Chat";
 import Filters from "./pages/Filters";
 import NotFound from "./pages/NotFound";
+import { AuthProvider } from "./context/AuthContext";
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
+    <AuthProvider>
     <TooltipProvider>
       <Toaster />
       <Sonner />
@@ -38,6 +40,7 @@ const App = () => (
         </Routes>
       </BrowserRouter>
     </TooltipProvider>
+      </AuthProvider>
   </QueryClientProvider>
 );
 

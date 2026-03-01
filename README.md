@@ -1,73 +1,103 @@
-# Welcome to your Lovable project
+# Spark Match MVP (React + Capacitor + Firebase)
 
-## Project info
+This project is a Firebase-first MVP dating app:
+- React frontend (Vite)
+- Capacitor mobile build
+- Firebase Authentication (Email/Password + Google + Apple)
+- Firestore data model for users, personality scores, preferences, swipes
+- Firebase Cloud Functions for matching, swiping, and daily swipe reset
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## 1) Setup
 
-## How can I edit this code?
+```bash
+npm install
+cd functions && npm install && cd ..
+```
 
-There are several ways of editing your application.
+Create `.env` in the root:
 
-**Use Lovable**
+```bash
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=...
+VITE_FIREBASE_PROJECT_ID=...
+VITE_FIREBASE_STORAGE_BUCKET=...
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_APP_ID=...
+```
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## 2) Firebase init/deploy
 
-Changes made via Lovable will be committed automatically to this repo.
+```bash
+firebase login
+firebase init firestore functions
+firebase deploy --only firestore:rules
+firebase deploy --only functions
+```
 
-**Use your preferred IDE**
+## 3) Run app
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+```bash
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+## 4) Capacitor sync/build
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```bash
+npx cap sync
+npx cap open ios
+npx cap open android
+```
 
-**Use GitHub Codespaces**
+## Firestore Collections
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+- `users/{uid}`
+  - name, bio, age, gender, location(GeoPoint), geohash, onboardingCompleted
+  - swipeRemaining, swipeResetAt
+- `personalityScores/{uid}`
+  - openness, conscientiousness, extraversion, agreeableness, neuroticism (0..100)
+- `preferences/{uid}`
+  - desiredOpenness, desiredConscientiousness, desiredExtraversion, desiredAgreeableness, desiredNeuroticism
+  - priorityOrder, minAge, maxAge
+- `swipes/{autoId}`
+  - swiperId, targetId, direction, createdAt
 
-## What technologies are used for this project?
+## Cloud Functions
 
-This project is built with:
+- `getMatches` (callable)
+  - Gets current user, preferences, scores
+  - Finds users within 25km (geohash query + distance check)
+  - Excludes swiped users
+  - Applies priority-stage algorithm
+  - Computes weighted match score and returns max 25 safe fields only
+- `swipeUser` (callable)
+  - Decrements `swipeRemaining`
+  - Stores swipe doc
+- `resetSwipeQueues` (scheduled every 24h)
+  - Resets all users to 25 swipes and bumps `swipeResetAt`
+- `resetSwipeQueueForUser` (callable)
+  - Manual test reset endpoint
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Questionnaire + Scoring
 
-## How can I deploy this project?
+- 5 pages:
+  1. Basic info (bio, age, gender, location)
+  2-4. Big Five questions (Likert 1-5, 3 items each trait)
+  5. Partner preference (Low/Medium/High + priority)
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+Scoring:
 
-## Can I connect a custom domain to my Lovable project?
+```text
+RawScore = sum(3 items)     // min 3, max 15
+Score = ((RawScore - 3) / 12) * 100
+```
 
-Yes, you can!
+Desired mapping:
+- Low = 25
+- Medium = 50
+- High = 75
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+## Security and Privacy
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+- Passwords handled by Firebase Auth.
+- Firestore rules prevent users from reading others' raw `personalityScores`.
+- Match API returns safe data only: name, age, bio, distance, matchScore.
