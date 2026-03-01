@@ -27,11 +27,11 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { PersonalityScores, TraitKey } from '@/lib/scoring';
-import { geohashForLocation, geohashQueryBounds } from 'geofire-common';
+import { geohashForLocation } from 'geofire-common';
 
 const TRAITS: TraitKey[] = ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism'];
 const MAX_MATCHES = 25;
-const RADIUS_METERS = 25000;
+const TRAIT_THRESHOLD = 80;
 const QUEUE_TTL_MS = 23 * 60 * 60 * 1000;
 
 // ── Types ──
@@ -187,7 +187,6 @@ export async function saveQuestionnaire(userId: string, payload: {
   lat: number;
   lon: number;
   scores: PersonalityScores;
-  desiredScores: Record<TraitKey, number>;
   priorityOrder: TraitKey[];
   minAge: number;
   maxAge: number;
@@ -205,11 +204,11 @@ export async function saveQuestionnaire(userId: string, payload: {
   await setDoc(doc(db, 'personalityScores', userId), payload.scores);
 
   await setDoc(doc(db, 'preferences', userId), {
-    desiredOpenness: payload.desiredScores.openness,
-    desiredConscientiousness: payload.desiredScores.conscientiousness,
-    desiredExtraversion: payload.desiredScores.extraversion,
-    desiredAgreeableness: payload.desiredScores.agreeableness,
-    desiredNeuroticism: payload.desiredScores.neuroticism,
+    desiredOpenness: TRAIT_THRESHOLD,
+    desiredConscientiousness: TRAIT_THRESHOLD,
+    desiredExtraversion: TRAIT_THRESHOLD,
+    desiredAgreeableness: TRAIT_THRESHOLD,
+    desiredNeuroticism: TRAIT_THRESHOLD,
     priorityOrder: payload.priorityOrder,
     minAge: payload.minAge,
     maxAge: payload.maxAge,
@@ -218,36 +217,19 @@ export async function saveQuestionnaire(userId: string, payload: {
 
 // ── Matching (Firestore-only; Spark plan friendly) ──
 
-function desiredFromPreferences(pref: Record<string, unknown>) {
-  return {
-    openness: Number(pref.desiredOpenness ?? 0),
-    conscientiousness: Number(pref.desiredConscientiousness ?? 0),
-    extraversion: Number(pref.desiredExtraversion ?? 0),
-    agreeableness: Number(pref.desiredAgreeableness ?? 0),
-    neuroticism: Number(pref.desiredNeuroticism ?? 0),
-  };
-}
-
 function normalizedWeights(priorityOrder: TraitKey[]) {
   const pairs = priorityOrder.map((trait, idx) => ({ trait, weight: 5 - idx }));
   const total = pairs.reduce((sum, pair) => sum + pair.weight, 0);
   return Object.fromEntries(pairs.map((pair) => [pair.trait, pair.weight / total])) as Record<TraitKey, number>;
 }
 
-function computeMatchScore(desired: Record<TraitKey, number>, candidate: Record<TraitKey, number>, priorityOrder: TraitKey[]) {
+function computeMatchScore(candidate: Record<TraitKey, number>, priorityOrder: TraitKey[]) {
   const weights = normalizedWeights(priorityOrder);
-  const diff = TRAITS.reduce((sum, trait) => sum + weights[trait] * Math.abs((desired[trait] ?? 0) - (candidate[trait] ?? 0)), 0);
+  const diff = TRAITS.reduce(
+    (sum, trait) => sum + weights[trait] * Math.abs(TRAIT_THRESHOLD - Number(candidate[trait] ?? 0)),
+    0,
+  );
   return Math.max(0, Math.round((100 - diff) * 100) / 100);
-}
-
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const R = 6371e3;
-  const p1 = (lat1 * Math.PI) / 180;
-  const p2 = (lat2 * Math.PI) / 180;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dLon / 2) ** 2;
-  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
 async function maybeResetSwipeCounter(uid: string, user: Record<string, unknown>) {
@@ -264,41 +246,30 @@ async function maybeResetSwipeCounter(uid: string, user: Record<string, unknown>
   return 25;
 }
 
-async function fetchCandidateUsers(currentUid: string, location: GeoPoint, minAge: number, maxAge: number, swipedIds: Set<string>) {
-  const bounds = geohashQueryBounds([location.latitude, location.longitude], RADIUS_METERS);
+async function fetchCandidateUsers(currentUid: string, minAge: number, maxAge: number, swipedIds: Set<string>) {
+  const snap = await getDocs(query(collection(db, 'users')));
   const candidates = new Map<string, MatchResult & { scores: Record<TraitKey, number> }>();
 
-  for (const [start, end] of bounds) {
-    const q = query(collection(db, 'users'), orderBy('geohash'), startAt(start), endAt(end), limit(150));
-    const snap = await getDocs(q);
+  snap.docs.forEach((d) => {
+    const u = d.data() as Record<string, unknown>;
+    if (d.id === currentUid || swipedIds.has(d.id)) return;
+    if (!u.onboardingCompleted) return;
+    const age = Number(u.age ?? 0);
+    if (age < minAge || age > maxAge) return;
 
-    snap.docs.forEach((d) => {
-      const u = d.data() as Record<string, unknown>;
-      if (d.id === currentUid || swipedIds.has(d.id)) return;
-      if (!u.location || !u.onboardingCompleted) return;
-      const age = Number(u.age ?? 0);
-      if (age < minAge || age > maxAge) return;
-      const point = u.location as GeoPoint;
-      const distanceMeters = Math.round(haversineMeters(location.latitude, location.longitude, point.latitude, point.longitude));
-      if (distanceMeters > RADIUS_METERS) return;
-      const scores = (u.matchingScores ?? null) as Record<TraitKey, number> | null;
-      if (!scores) return;
+    const scores = (u.matchingScores ?? null) as Record<TraitKey, number> | null;
+    if (!scores) return;
 
-      candidates.set(d.id, {
-        uid: d.id,
-        name: String(u.name ?? ''),
-        age,
-        bio: String(u.bio ?? ''),
-        photos: (u.photos as string[] | undefined) ?? [],
-        distanceMeters,
-        distance: distanceMeters / 1000,
-        matchScore: 0,
-        scores,
-      });
+    candidates.set(d.id, {
+      uid: d.id,
+      name: String(u.name ?? ''),
+      age,
+      bio: String(u.bio ?? ''),
+      photos: (u.photos as string[] | undefined) ?? [],
+      matchScore: 0,
+      scores,
     });
-
-    if (candidates.size >= 200) break;
-  }
+  });
 
   return [...candidates.values()];
 }
@@ -315,12 +286,13 @@ export async function getMatches(): Promise<{ matches: MatchResult[]; remaining:
   const pref = prefSnap.data() as Record<string, unknown>;
 
   if (!user.onboardingCompleted) throw new Error('Complete onboarding first');
-  if (!user.location) throw new Error('location_required');
-
   const remaining = await maybeResetSwipeCounter(uid, user);
   if (remaining <= 0) {
-    return { matches: [], remaining: 0, message: 'no_swipes_remaining' };
+    return { matches: [], remaining: 0, message: 'no_more_profiles_today' };
   }
+
+  const swipedSnap = await getDocs(query(collection(db, 'swipes'), where('swiperId', '==', uid)));
+  const swipedIds = new Set(swipedSnap.docs.map((d) => String(d.data().targetId)));
 
   const queueRef = doc(db, 'swipeQueues', uid);
   const queueSnap = await getDoc(queueRef);
@@ -330,33 +302,23 @@ export async function getMatches(): Promise<{ matches: MatchResult[]; remaining:
     const generatedAtMs = queueData.generatedAt?.toMillis() ?? 0;
     const ageMs = Date.now() - generatedAtMs;
     const pointer = Number(queueData.lastCandidateIndex ?? 0);
-    const queue = Array.isArray(queueData.queue) ? queueData.queue : [];
+    const queue = Array.isArray(queueData.queue)
+      ? queueData.queue.filter((candidate) => !swipedIds.has(candidate.uid))
+      : [];
 
     if (ageMs <= QUEUE_TTL_MS && pointer < queue.length) {
       return { matches: queue.slice(pointer, pointer + Math.min(MAX_MATCHES, remaining)), remaining };
     }
   }
 
-  const swipedSnap = await getDocs(query(collection(db, 'swipes'), where('swiperId', '==', uid)));
-  const swipedIds = new Set(swipedSnap.docs.map((d) => String(d.data().targetId)));
-
-  const candidates = await fetchCandidateUsers(
-    uid,
-    user.location as GeoPoint,
-    Number(pref.minAge ?? 18),
-    Number(pref.maxAge ?? 99),
-    swipedIds,
-  );
-
-  const desired = desiredFromPreferences(pref) as Record<TraitKey, number>;
+  const candidates = await fetchCandidateUsers(uid, Number(pref.minAge ?? 18), Number(pref.maxAge ?? 99), swipedIds);
   const priorityOrder = (Array.isArray(pref.priorityOrder) ? pref.priorityOrder : TRAITS).filter((t): t is TraitKey => TRAITS.includes(t as TraitKey));
   const completePriorityOrder = [...priorityOrder, ...TRAITS.filter((t) => !priorityOrder.includes(t))];
 
   let pool: (MatchResult & { scores: Record<TraitKey, number> })[] = [];
 
   for (const trait of completePriorityOrder) {
-    const threshold = desired[trait] ?? 0;
-    const filtered = candidates.filter((candidate) => Number(candidate.scores[trait] ?? -1) >= threshold);
+    const filtered = candidates.filter((candidate) => Number(candidate.scores[trait] ?? -1) >= TRAIT_THRESHOLD);
     if (filtered.length > 0) {
       pool = filtered;
       break;
@@ -374,11 +336,9 @@ export async function getMatches(): Promise<{ matches: MatchResult[]; remaining:
       age: candidate.age,
       bio: candidate.bio,
       photos: candidate.photos,
-      distanceMeters: candidate.distanceMeters,
-      distance: candidate.distance,
-      matchScore: computeMatchScore(desired, candidate.scores, completePriorityOrder),
+      matchScore: computeMatchScore(candidate.scores, completePriorityOrder),
     }))
-    .sort((a, b) => b.matchScore - a.matchScore || (a.distanceMeters ?? 0) - (b.distanceMeters ?? 0))
+    .sort((a, b) => b.matchScore - a.matchScore)
     .slice(0, MAX_MATCHES);
 
   await setDoc(queueRef, {
@@ -489,6 +449,44 @@ export async function listMessages(matchId: string) {
 
 export async function sendMessage(matchId: string, senderId: string, text: string) {
   await addDoc(collection(db, 'messages'), { matchId, senderId, text, createdAt: serverTimestamp() });
+}
+
+
+export async function getUserPriorityOrder(): Promise<TraitKey[]> {
+  const uid = getCurrentUserId();
+  if (!uid) return [...TRAITS];
+
+  const prefSnap = await getDoc(doc(db, 'preferences', uid));
+  if (!prefSnap.exists()) return [...TRAITS];
+
+  const data = prefSnap.data() as { priorityOrder?: string[] };
+  const order = (data.priorityOrder ?? []).filter((trait): trait is TraitKey =>
+    TRAITS.includes(trait as TraitKey),
+  );
+  return [...order, ...TRAITS.filter((trait) => !order.includes(trait))];
+}
+
+export async function saveUserPriorityOrder(priorityOrder: TraitKey[]) {
+  const uid = getCurrentUserId();
+  if (!uid) throw new Error('Unauthenticated');
+
+  const normalized = priorityOrder.filter((trait, index) =>
+    TRAITS.includes(trait) && priorityOrder.indexOf(trait) === index,
+  );
+  const completed = [...normalized, ...TRAITS.filter((trait) => !normalized.includes(trait))];
+
+  await setDoc(
+    doc(db, 'preferences', uid),
+    {
+      priorityOrder: completed,
+      desiredOpenness: TRAIT_THRESHOLD,
+      desiredConscientiousness: TRAIT_THRESHOLD,
+      desiredExtraversion: TRAIT_THRESHOLD,
+      desiredAgreeableness: TRAIT_THRESHOLD,
+      desiredNeuroticism: TRAIT_THRESHOLD,
+    },
+    { merge: true },
+  );
 }
 
 // ── Filters (local) ──

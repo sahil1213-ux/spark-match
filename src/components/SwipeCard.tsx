@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { Heart, X } from 'lucide-react';
 import { MatchResult } from '@/lib/store';
 
@@ -8,18 +9,136 @@ interface SwipeCardProps {
 }
 
 export default function SwipeCard({ user, onSwipeLeft, onSwipeRight }: SwipeCardProps) {
+  const [photoIdx, setPhotoIdx] = useState(0);
+  const [dragX, setDragX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const startX = useRef(0);
+  const startY = useRef(0);
+  const isHorizontal = useRef<boolean | null>(null);
+
+  const photos = user.photos ?? [];
+
+  const handleStart = (clientX: number, clientY: number) => {
+    startX.current = clientX;
+    startY.current = clientY;
+    isHorizontal.current = null;
+    setIsDragging(true);
+  };
+
+  const handleMove = (clientX: number, clientY: number) => {
+    if (!isDragging) return;
+
+    const dx = clientX - startX.current;
+    const dy = clientY - startY.current;
+
+    if (isHorizontal.current === null) {
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+        isHorizontal.current = Math.abs(dx) > Math.abs(dy);
+      }
+      return;
+    }
+
+    if (isHorizontal.current) {
+      setDragX(dx);
+    }
+  };
+
+  const handleEnd = () => {
+    if (!isDragging) return;
+    setIsDragging(false);
+
+    if (dragX > 100) {
+      onSwipeRight();
+    } else if (dragX < -100) {
+      onSwipeLeft();
+    }
+
+    setDragX(0);
+  };
+
+  const rotation = dragX * 0.08;
+  const opacity = Math.max(0, 1 - Math.abs(dragX) / 400);
 
   return (
-    <div className="relative w-full max-w-sm mx-auto mt-2">
-      <div className="bg-card rounded-3xl overflow-hidden shadow-xl border border-border min-h-[540px]">
-        <div className="relative h-[360px] bg-secondary">
-          <div className="w-full h-full gradient-coral flex items-center justify-center"><span className="text-6xl font-heading text-primary-foreground">{user.name[0]}</span></div>
+    <div className="relative w-full max-w-sm mx-auto" style={{ aspectRatio: '3/4' }}>
+      <div
+        className="absolute inset-0 rounded-3xl overflow-hidden shadow-2xl bg-card cursor-grab active:cursor-grabbing select-none"
+        style={{
+          transform: `translateX(${dragX}px) rotate(${rotation}deg)`,
+          opacity,
+          transition: isDragging ? 'none' : 'all 0.3s ease-out',
+        }}
+        onMouseDown={(e) => handleStart(e.clientX, e.clientY)}
+        onMouseMove={(e) => handleMove(e.clientX, e.clientY)}
+        onMouseUp={handleEnd}
+        onMouseLeave={handleEnd}
+        onTouchStart={(e) => handleStart(e.touches[0].clientX, e.touches[0].clientY)}
+        onTouchMove={(e) => handleMove(e.touches[0].clientX, e.touches[0].clientY)}
+        onTouchEnd={handleEnd}
+      >
+        {dragX > 50 && (
+          <div className="absolute top-8 left-6 z-20 px-4 py-2 border-4 border-primary text-primary font-bold text-2xl rounded-xl rotate-[-20deg]">
+            LIKE
+          </div>
+        )}
+        {dragX < -50 && (
+          <div className="absolute top-8 right-6 z-20 px-4 py-2 border-4 border-destructive text-destructive font-bold text-2xl rounded-xl rotate-[20deg]">
+            NOPE
+          </div>
+        )}
+
+        <div className="relative w-full h-[65%] bg-secondary">
+          {photos.length > 0 ? (
+            <img src={photos[photoIdx]} alt={user.name} className="w-full h-full object-cover" draggable={false} />
+          ) : (
+            <div className="w-full h-full gradient-coral flex items-center justify-center">
+              <span className="text-6xl font-heading text-primary-foreground">{user.name[0]}</span>
+            </div>
+          )}
+
+          {photos.length > 1 && (
+            <div className="absolute top-3 left-0 right-0 flex justify-center gap-1.5 z-10">
+              {photos.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPhotoIdx(i);
+                  }}
+                  className={`h-1 rounded-full transition-all ${
+                    i === photoIdx ? 'w-6 bg-primary-foreground' : 'w-4 bg-primary-foreground/50'
+                  }`}
+                />
+              ))}
+            </div>
+          )}
         </div>
-        <div className="p-5"><div className="flex items-baseline gap-2"><h2 className="text-2xl font-heading font-bold">{user.name}</h2><span className="text-lg text-muted-foreground">{user.age}</span>{user.distance != null && <span className="text-xs text-muted-foreground ml-auto">{Math.round(user.distance)} km</span>}</div><p className="text-sm text-muted-foreground mt-2">{user.bio}</p>{user.matchScore != null && <p className="text-xs font-semibold text-primary mt-2">{user.matchScore}% match</p>}</div>
+
+        <div className="p-5 flex flex-col gap-2">
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-2xl font-heading font-bold text-card-foreground">{user.name}</h2>
+            <span className="text-lg text-muted-foreground">{user.age}</span>
+            {user.distance != null && <span className="text-xs text-muted-foreground ml-auto">{Math.round(user.distance)} km</span>}
+          </div>
+          <p className="text-sm text-muted-foreground line-clamp-2">{user.bio}</p>
+          {user.matchScore != null && <p className="text-xs font-semibold text-primary mt-1">{user.matchScore}% match</p>}
+        </div>
       </div>
+
       <div className="absolute -bottom-16 left-0 right-0 flex justify-center gap-6">
-        <button onClick={onSwipeLeft} className="w-14 h-14 rounded-full bg-card border-2 border-border flex items-center justify-center shadow-lg"><X size={26} className="text-muted-foreground" /></button>
-        <button onClick={onSwipeRight} className="w-16 h-16 rounded-full gradient-coral flex items-center justify-center shadow-lg"><Heart size={28} className="text-primary-foreground" fill="currentColor" /></button>
+        <button
+          onClick={onSwipeLeft}
+          className="w-14 h-14 rounded-full bg-card border-2 border-border flex items-center justify-center shadow-lg hover:scale-110 transition-transform active:scale-95"
+        >
+          <X size={26} className="text-muted-foreground" />
+        </button>
+        <button
+          onClick={onSwipeRight}
+          className="w-16 h-16 rounded-full gradient-coral flex items-center justify-center shadow-lg hover:scale-110 transition-transform active:scale-95"
+        >
+          <Heart size={28} className="text-primary-foreground" fill="currentColor" />
+        </button>
       </div>
     </div>
   );
