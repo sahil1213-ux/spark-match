@@ -67,7 +67,11 @@ export default function Questionnaire() {
     if (!profile) return;
 
     const rawAnswers: Record<TraitKey, number[]> = {
-      openness: [], conscientiousness: [], extraversion: [], agreeableness: [], neuroticism: [],
+      openness: [],
+      conscientiousness: [],
+      extraversion: [],
+      agreeableness: [],
+      neuroticism: [],
     };
 
     likertQuestions.forEach((q, i) => {
