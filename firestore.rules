@@ -12,7 +12,7 @@ service cloud.firestore {
 
     // Private archive for owner only; Spark-plan matching reads users.matchingScores instead.
     match /personalityScores/{uid} {
-      allow read, write: if isOwner(uid);
+      allow read, write: if false;
     }
 
     match /preferences/{uid} {
