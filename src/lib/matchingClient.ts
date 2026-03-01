@@ -1,7 +1,7 @@
+import { httpsCallable } from 'firebase/functions';
 import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 
-import { db } from './firebase';
-import { getMatches as getMatchesFromStore, swipeUser } from './store';
+import { db, functions } from './firebase';
 
 type SwipeDirection = 'left' | 'right';
 
@@ -50,28 +50,15 @@ export async function updatePersonalityTraitAnswer(
 }
 
 export async function getMatches(): Promise<GetMatchesResponse> {
-  const result = await getMatchesFromStore();
-  return {
-    matches: result.matches.map((match) => ({
-      uid: match.uid,
-      name: match.name,
-      age: match.age,
-      bio: match.bio,
-      distanceMeters:
-        match.distanceMeters ?? Math.round(((match.distance ?? 0) * 1000)),
-      matchScore: match.matchScore,
-    })),
-    remaining: result.remaining,
-    message: result.message,
-  };
+  const callable = httpsCallable(functions, 'getMatches');
+  const result = await callable({});
+  return result.data as GetMatchesResponse;
 }
 
 export async function swipe(targetId: string, direction: SwipeDirection): Promise<SwipeResponse> {
-  const result = await swipeUser(targetId, direction);
-  return {
-    swipeRemaining: result.remaining,
-    matched: result.matched,
-  };
+  const callable = httpsCallable(functions, 'swipe');
+  const result = await callable({ targetId, direction });
+  return result.data as SwipeResponse;
 }
 
 async function geohashForCoords(latitude: number, longitude: number): Promise<string> {

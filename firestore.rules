@@ -10,9 +10,9 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Private archive for owner only; Spark-plan matching reads users.matchingScores instead.
+    // Private: only Cloud Functions (Admin SDK) should read personality vectors.
     match /personalityScores/{uid} {
-      allow read, write: if isOwner(uid);
+      allow read, write: if false;
     }
 
     match /preferences/{uid} {
@@ -37,7 +37,8 @@ service cloud.firestore {
     }
 
     match /swipeQueues/{uid} {
-      allow read, write: if isOwner(uid);
+      allow read: if isOwner(uid);
+      allow write: if false;
     }
   }
 }
