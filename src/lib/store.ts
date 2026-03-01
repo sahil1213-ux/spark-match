@@ -1,85 +1,144 @@
-import {
-  GoogleAuthProvider,
-  OAuthProvider,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  signOut,
-} from 'firebase/auth';
-import {
-  GeoPoint,
-  Timestamp,
-  addDoc,
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-  where,
-} from 'firebase/firestore';
-import { httpsCallable } from 'firebase/functions';
-import { auth, db, functions } from '@/lib/firebase';
-import { PreferenceLevels, PersonalityScores, TraitKey, mapDesiredLevel } from '@/lib/scoring';
-import { geohashForLocation } from 'geofire-common';
+const STORAGE_KEYS = {
+  auth: 'spark_auth',
+};
+
+const FIREBASE_API_KEY = import.meta.env.VITE_FIREBASE_API_KEY as string;
+const FIREBASE_PROJECT_ID = import.meta.env.VITE_FIREBASE_PROJECT_ID as string;
+
+const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
 
 export interface UserProfile {
   id: string;
   uid: string;
   email: string;
   name: string;
-  bio: string;
   age: number;
   gender: 'Male' | 'Female' | 'Other';
-  location?: GeoPoint;
-  onboardingCompleted: boolean;
-  createdAt?: Timestamp;
-  swipeRemaining: number;
-  swipeResetAt?: Timestamp;
+  preference: 'Male' | 'Female' | 'Any';
+  bio: string;
+  questionnaire: Record<string, string>;
   photos: string[];
 }
 
-export interface MatchResult {
-  uid: string;
-  name: string;
-  age: number;
-  bio: string;
-  distance: number;
-  matchScore: number;
+export interface MatchDoc {
+  id: string;
+  users: string[];
 }
 
-const FILTERS_KEY = 'spark_filters';
-
-export interface Filters {
-  ageMin: number;
-  ageMax: number;
-  gender: 'Male' | 'Female' | 'Any';
+export interface MessageDoc {
+  id: string;
+  matchId: string;
+  senderId: string;
+  text: string;
+  createdAt?: string;
 }
 
-async function ensureUserDoc(base: Partial<UserProfile> = {}) {
-  const user = auth.currentUser;
-  if (!user) return null;
-  const userRef = doc(db, 'users', user.uid);
-  const snapshot = await getDoc(userRef);
-  if (!snapshot.exists()) {
-    await setDoc(userRef, {
-      uid: user.uid,
-      email: user.email ?? '',
-      name: base.name ?? '',
-      bio: base.bio ?? '',
-      age: base.age ?? 18,
-      gender: base.gender ?? 'Other',
-      createdAt: serverTimestamp(),
-      onboardingCompleted: false,
-      swipeRemaining: 25,
-      swipeResetAt: Timestamp.fromDate(new Date(Date.now() + 24 * 60 * 60 * 1000)),
-      photos: [],
-      ...(base.location ? { location: base.location } : {}),
-    });
+type AuthState = { localId: string; email: string; idToken: string };
+
+function getAuthState(): AuthState | null {
+  const raw = localStorage.getItem(STORAGE_KEYS.auth);
+  return raw ? (JSON.parse(raw) as AuthState) : null;
+}
+
+function setAuthState(state: AuthState) {
+  localStorage.setItem(STORAGE_KEYS.auth, JSON.stringify(state));
+}
+
+function clearAuthState() {
+  localStorage.removeItem(STORAGE_KEYS.auth);
+}
+
+function toFirestoreValue(value: any): any {
+  if (value === null || value === undefined) return { nullValue: null };
+  if (typeof value === 'string') return { stringValue: value };
+  if (typeof value === 'number') return Number.isInteger(value) ? { integerValue: String(value) } : { doubleValue: value };
+  if (typeof value === 'boolean') return { booleanValue: value };
+  if (Array.isArray(value)) return { arrayValue: { values: value.map(toFirestoreValue) } };
+  if (typeof value === 'object') {
+    return {
+      mapValue: {
+        fields: Object.fromEntries(Object.entries(value).map(([k, v]) => [k, toFirestoreValue(v)])),
+      },
+    };
   }
-  return user.uid;
+  return { stringValue: String(value) };
+}
+
+function fromFirestoreValue(value: any): any {
+  if (!value) return null;
+  if ('stringValue' in value) return value.stringValue;
+  if ('integerValue' in value) return Number(value.integerValue);
+  if ('doubleValue' in value) return Number(value.doubleValue);
+  if ('booleanValue' in value) return value.booleanValue;
+  if ('nullValue' in value) return null;
+  if ('arrayValue' in value) return (value.arrayValue.values ?? []).map(fromFirestoreValue);
+  if ('mapValue' in value) {
+    const fields = value.mapValue.fields ?? {};
+    return Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, fromFirestoreValue(v)]));
+  }
+  if ('timestampValue' in value) return value.timestampValue;
+  return null;
+}
+
+function decodeDocument(doc: any) {
+  const fields = doc.fields ?? {};
+  return Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, fromFirestoreValue(v)]));
+}
+
+async function authedFetch(url: string, init: RequestInit = {}) {
+  const auth = getAuthState();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(init.headers as Record<string, string> ?? {}) };
+  if (auth?.idToken) headers.Authorization = `Bearer ${auth.idToken}`;
+  return fetch(url, { ...init, headers });
+}
+
+async function setDocument(path: string, data: Record<string, any>) {
+  await authedFetch(`${FIRESTORE_BASE}/${path}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ fields: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, toFirestoreValue(v)])) }),
+  });
+}
+
+async function getDocument(path: string) {
+  const res = await authedFetch(`${FIRESTORE_BASE}/${path}`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return decodeDocument(data);
+}
+
+async function queryDocuments(fromCollectionId: string, filters: Array<{ field: string; op: string; value: any }>) {
+  const body: any = {
+    structuredQuery: {
+      from: [{ collectionId: fromCollectionId }],
+    },
+  };
+
+  if (filters.length === 1) {
+    body.structuredQuery.where = {
+      fieldFilter: {
+        field: { fieldPath: filters[0].field },
+        op: filters[0].op,
+        value: toFirestoreValue(filters[0].value),
+      },
+    };
+  } else if (filters.length > 1) {
+    body.structuredQuery.where = {
+      compositeFilter: {
+        op: 'AND',
+        filters: filters.map(f => ({
+          fieldFilter: { field: { fieldPath: f.field }, op: f.op, value: toFirestoreValue(f.value) },
+        })),
+      },
+    };
+  }
+
+  const res = await authedFetch(`${FIRESTORE_BASE}:runQuery`, { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) return [];
+  const rows = await res.json();
+  return rows.filter((r: any) => r.document).map((r: any) => {
+    const id = r.document.name.split('/').pop();
+    return { id, ...decodeDocument(r.document) };
+  });
 }
 
 export async function signupUser(payload: {
@@ -88,74 +147,59 @@ export async function signupUser(payload: {
   name: string;
   age: number;
   gender: UserProfile['gender'];
+  preference: UserProfile['preference'];
   bio: string;
 }) {
-  await createUserWithEmailAndPassword(auth, payload.email, payload.password);
-  await ensureUserDoc(payload);
+  const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: payload.email, password: payload.password, returnSecureToken: true }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || 'Signup failed');
+
+  setAuthState({ localId: data.localId, email: data.email, idToken: data.idToken });
+
+  const profile: UserProfile = {
+    id: data.localId,
+    email: data.email,
+    name: payload.name,
+    age: payload.age,
+    gender: payload.gender,
+    preference: payload.preference,
+    bio: payload.bio,
+    questionnaire: {},
+    photos: [],
+  };
+  await setDocument(`users/${data.localId}`, profile as unknown as Record<string, any>);
+  return profile;
 }
 
 export async function loginUser(email: string, password: string) {
-  await signInWithEmailAndPassword(auth, email, password);
-  await ensureUserDoc();
-}
-
-export async function loginWithGoogle() {
-  const provider = new GoogleAuthProvider();
-  await signInWithPopup(auth, provider);
-  await ensureUserDoc();
-}
-
-export async function loginWithApple() {
-  const provider = new OAuthProvider('apple.com');
-  await signInWithPopup(auth, provider);
-  await ensureUserDoc();
+  const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, returnSecureToken: true }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || 'Login failed');
+  setAuthState({ localId: data.localId, email: data.email, idToken: data.idToken });
 }
 
 export async function getCurrentUserProfile(): Promise<UserProfile | null> {
-  const user = auth.currentUser;
-  if (!user) return null;
-  const snapshot = await getDoc(doc(db, 'users', user.uid));
-  if (!snapshot.exists()) return null;
-  return { id: user.uid, ...snapshot.data() } as UserProfile;
+  const auth = getAuthState();
+  if (!auth) return null;
+  return getDocument(`users/${auth.localId}`);
 }
 
 export function getCurrentUserId() {
-  return auth.currentUser?.uid ?? null;
+  return getAuthState()?.localId ?? null;
 }
 
-export async function saveQuestionnaire(userId: string, payload: {
-  bio: string;
-  age: number;
-  gender: UserProfile['gender'];
-  lat: number;
-  lon: number;
-  scores: PersonalityScores;
-  preferenceLevels: PreferenceLevels;
-  priorityOrder: TraitKey[];
-  minAge: number;
-  maxAge: number;
-}) {
-  await updateDoc(doc(db, 'users', userId), {
-    bio: payload.bio,
-    age: payload.age,
-    gender: payload.gender,
-    location: new GeoPoint(payload.lat, payload.lon),
-    geohash: geohashForLocation([payload.lat, payload.lon]),
-    onboardingCompleted: true,
-  });
-
-  await setDoc(doc(db, 'personalityScores', userId), payload.scores);
-
-  await setDoc(doc(db, 'preferences', userId), {
-    desiredOpenness: mapDesiredLevel(payload.preferenceLevels.openness),
-    desiredConscientiousness: mapDesiredLevel(payload.preferenceLevels.conscientiousness),
-    desiredExtraversion: mapDesiredLevel(payload.preferenceLevels.extraversion),
-    desiredAgreeableness: mapDesiredLevel(payload.preferenceLevels.agreeableness),
-    desiredNeuroticism: mapDesiredLevel(payload.preferenceLevels.neuroticism),
-    priorityOrder: payload.priorityOrder,
-    minAge: payload.minAge,
-    maxAge: payload.maxAge,
-  });
+export async function saveQuestionnaire(userId: string, answers: Record<string, string>) {
+  const user = await getDocument(`users/${userId}`);
+  if (!user) return;
+  await setDocument(`users/${userId}`, { ...user, questionnaire: answers });
 }
 
 export async function uploadUserPhoto(userId: string, file: File) {
@@ -164,66 +208,100 @@ export async function uploadUserPhoto(userId: string, file: File) {
     reader.onload = () => resolve(reader.result as string);
     reader.readAsDataURL(file);
   });
-  const userRef = doc(db, 'users', userId);
-  const snapshot = await getDoc(userRef);
-  const currentPhotos = (snapshot.data()?.photos ?? []) as string[];
-  await updateDoc(userRef, { photos: [...currentPhotos, asDataUrl].slice(0, 6) });
+  const user = await getDocument(`users/${userId}`);
+  const photos = [...(user?.photos ?? []), asDataUrl].slice(0, 6);
+  await setDocument(`users/${userId}`, { ...user, photos });
   return asDataUrl;
 }
 
 export async function saveProfileBio(userId: string, bio: string) {
-  await updateDoc(doc(db, 'users', userId), { bio });
+  const user = await getDocument(`users/${userId}`);
+  if (!user) return;
+  await setDocument(`users/${userId}`, { ...user, bio });
 }
 
-export async function getMatches(): Promise<MatchResult[]> {
-  const call = httpsCallable(functions, 'getMatches');
-  const result = await call();
-  return (result.data ?? []) as MatchResult[];
+export async function getAllOtherUsers(userId: string): Promise<UserProfile[]> {
+  const res = await authedFetch(`${FIRESTORE_BASE}/users`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  const docs = data.documents ?? [];
+  return docs.map((d: any) => decodeDocument(d) as UserProfile).filter((u: UserProfile) => u.id !== userId);
 }
 
-export async function swipeUser(targetId: string, direction: 'left' | 'right') {
-  const call = httpsCallable(functions, 'swipeUser');
-  const result = await call({ targetId, direction });
-  return result.data as { remaining: number };
+function extractJsonArray(input: string): string {
+  const start = input.indexOf('[');
+  const end = input.lastIndexOf(']');
+  if (start === -1 || end === -1 || end <= start) return '[]';
+  return input.slice(start, end + 1);
+}
+
+export async function rankCandidatesWithAI(currentUser: UserProfile, candidates: UserProfile[]) {
+  const prompt = `You are a dating compatibility engine.\nRank candidates from best to worst match.\nReturn only strict JSON:\n[\n  {\n    "userId": "",\n    "score": 85\n  }\n]\nSort highest score first.\nDo not return explanation text.`;
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${import.meta.env.VITE_GOOGLE_AI_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: [{ parts: [{ text: `${prompt}\n\nInput data:\n${JSON.stringify({ currentUser, candidates })}` }] }] }),
+  });
+
+  if (!response.ok) return candidates;
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '[]';
+  const parsed = JSON.parse(extractJsonArray(text)) as Array<{ userId: string; score: number }>;
+  const ordered = parsed.map(item => candidates.find(c => c.id === item.userId)).filter(Boolean) as UserProfile[];
+  return ordered.length > 0 ? ordered : candidates;
+}
+
+export async function swipeUser(fromUserId: string, toUserId: string, action: 'like' | 'dislike') {
+  await setDocument(`swipes/${fromUserId}_${toUserId}`, { fromUserId, toUserId, action });
+  if (action !== 'like') return { isMatch: false, matchId: null as string | null };
+
+  const reverse = await getDocument(`swipes/${toUserId}_${fromUserId}`);
+  if (reverse?.action === 'like') {
+    const matchId = [fromUserId, toUserId].sort().join('_');
+    await setDocument(`matches/${matchId}`, { users: [fromUserId, toUserId] });
+    return { isMatch: true, matchId };
+  }
+  return { isMatch: false, matchId: null as string | null };
 }
 
 export async function getMatchesForUser(userId: string) {
-  const matchesQuery = query(collection(db, 'matches'), where('users', 'array-contains', userId));
-  const snapshots = await getDocs(matchesQuery);
-  return snapshots.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<{ id: string; users: string[] }>;
+  return queryDocuments('matches', [{ field: 'users', op: 'ARRAY_CONTAINS', value: userId }]) as Promise<MatchDoc[]>;
 }
 
 export async function getUserById(userId: string) {
-  const snapshot = await getDoc(doc(db, 'users', userId));
-  if (!snapshot.exists()) return null;
-  return { id: userId, ...snapshot.data() } as UserProfile;
+  return getDocument(`users/${userId}`) as Promise<UserProfile | null>;
 }
 
 export async function listMessages(matchId: string) {
-  const q = query(collection(db, 'messages'), where('matchId', '==', matchId));
-  const snapshots = await getDocs(q);
-  return snapshots.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .sort((a, b) => String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? '')));
+  const msgs = await queryDocuments('messages', [{ field: 'matchId', op: 'EQUAL', value: matchId }]);
+  return (msgs as MessageDoc[]).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
 }
 
 export async function sendMessage(matchId: string, senderId: string, text: string) {
-  await addDoc(collection(db, 'messages'), { matchId, senderId, text, createdAt: serverTimestamp() });
+  const docId = `msg_${Date.now()}`;
+  await setDocument(`messages/${docId}`, { matchId, senderId, text, createdAt: new Date().toISOString() });
 }
 
 export async function logout() {
-  await signOut(auth);
+  clearAuthState();
+}
+
+
+export interface Filters {
+  ageMin: number;
+  ageMax: number;
+  gender: 'Male' | 'Female' | 'Any';
 }
 
 export function getFilters(): Filters {
-  const raw = localStorage.getItem(FILTERS_KEY);
+  const raw = localStorage.getItem('spark_filters');
   return raw ? JSON.parse(raw) : { ageMin: 18, ageMax: 99, gender: 'Any' };
 }
 
 export function setFilters(filters: Filters) {
-  localStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
+  localStorage.setItem('spark_filters', JSON.stringify(filters));
 }
 
 export function getCurrentUser() {
-  return auth.currentUser;
+  return getAuthState();
 }

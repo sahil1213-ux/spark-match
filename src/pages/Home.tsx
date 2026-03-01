@@ -1,15 +1,20 @@
 import { useEffect, useState } from 'react';
-import { getMatches, swipeUser, MatchResult } from '@/lib/store';
+import { getCurrentUserProfile, getAllOtherUsers, rankCandidatesWithAI, swipeUser, UserProfile } from '@/lib/store';
+import SwipeCard from '@/components/SwipeCard';
 import BottomNav from '@/components/BottomNav';
-import { Heart, X } from 'lucide-react';
 
 export default function Home() {
-  const [candidates, setCandidates] = useState<MatchResult[]>([]);
-  const [remaining, setRemaining] = useState<number | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [candidates, setCandidates] = useState<UserProfile[]>([]);
+  const [matchPopup, setMatchPopup] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
-      const ranked = await getMatches();
+      const me = await getCurrentUserProfile();
+      if (!me) return;
+      setCurrentUser(me);
+      const others = await getAllOtherUsers(me.id);
+      const ranked = await rankCandidatesWithAI(me, others);
       setCandidates(ranked);
     };
     void load();
@@ -17,33 +22,23 @@ export default function Home() {
 
   const current = candidates[0];
 
-  const handleSwipe = async (direction: 'left' | 'right') => {
-    if (!current) return;
-    const result = await swipeUser(current.uid, direction);
-    setRemaining(result.remaining);
-    setCandidates((prev) => prev.slice(1));
+  const onSwipe = async (action: 'like' | 'dislike') => {
+    if (!currentUser || !current) return;
+    const result = await swipeUser(currentUser.id, current.id, action);
+    if (result.isMatch) {
+      setMatchPopup(current.name);
+      setTimeout(() => setMatchPopup(null), 2000);
+    }
+    setCandidates(prev => prev.slice(1));
   };
 
   return (
     <div className="min-h-screen bg-background safe-top pb-24">
       <div className="max-w-sm mx-auto px-4 pt-6">
-        <h1 className="text-xl font-heading font-bold mb-2">Recommended Matches</h1>
-        {remaining !== null && <p className="text-sm text-muted-foreground mb-4">Swipes remaining: {remaining}</p>}
-        {current ? (
-          <div className="bg-card rounded-3xl p-5 border">
-            <h2 className="text-2xl font-semibold">{current.name}, {current.age}</h2>
-            <p className="text-sm mt-2">{current.bio}</p>
-            <p className="text-sm text-muted-foreground mt-2">Distance: {current.distance.toFixed(1)} km</p>
-            <p className="text-sm text-muted-foreground">Match score: {current.matchScore}</p>
-            <div className="flex gap-4 mt-6">
-              <button onClick={() => handleSwipe('left')} className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center"><X /></button>
-              <button onClick={() => handleSwipe('right')} className="w-12 h-12 rounded-full gradient-coral text-primary-foreground flex items-center justify-center"><Heart fill="currentColor" /></button>
-            </div>
-          </div>
-        ) : (
-          <p className="text-muted-foreground text-center py-20">No more profiles in your queue</p>
-        )}
+        <h1 className="text-xl font-heading font-bold mb-6">AI Ranked Matches</h1>
+        {current ? <SwipeCard user={current} onSwipeLeft={() => onSwipe('dislike')} onSwipeRight={() => onSwipe('like')} /> : <p className="text-muted-foreground text-center py-20">No more profiles</p>}
       </div>
+      {matchPopup && <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40"><div className="gradient-coral rounded-3xl px-10 py-12 text-center"><h2 className="text-2xl font-heading font-bold text-primary-foreground mb-1">It's a Match!</h2><p className="text-primary-foreground/80">You and {matchPopup} liked each other</p></div></div>}
       <BottomNav />
     </div>
   );
