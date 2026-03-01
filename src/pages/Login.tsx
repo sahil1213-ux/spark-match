@@ -28,7 +28,7 @@ export default function Login() {
         <div className="w-16 h-16 rounded-2xl gradient-coral flex items-center justify-center mb-4 shadow-lg">
           <Heart size={32} className="text-primary-foreground" fill="currentColor" />
         </div>
-        <h1 className="text-3xl font-heading font-bold text-foreground mb-1">Spark Match</h1>
+        <h1 className="text-3xl font-heading font-bold text-foreground mb-1">EliteSync</h1>
 
         <form onSubmit={handleLogin} className="w-full space-y-4 mt-8">
           <Input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required className="h-12 rounded-xl bg-card" />

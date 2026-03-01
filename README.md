@@ -1,4 +1,4 @@
-# Spark Match MVP (React + Capacitor + Firebase)
+# EliteSync MVP (React + Capacitor + Firebase)
 
 This project is a Firebase-first MVP dating app:
 - React frontend (Vite)
