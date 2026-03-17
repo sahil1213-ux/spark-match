@@ -80,6 +80,22 @@ export interface Filters {
   gender: 'Male' | 'Female' | 'Any';
 }
 
+export interface AdvancedFilters extends Filters {
+  city: string;
+  distanceKm: number;
+  relationshipGoal: 'short-term' | 'long-term' | 'friends' | 'open to anything';
+  wantsChildren: 'yes' | 'no' | 'unsure';
+  hasChildren: 'yes' | 'no';
+  smoking: 'yes' | 'no' | 'prefer not to say';
+  drinking: 'yes' | 'no' | 'prefer not to say';
+  exerciseFrequency: 'never' | 'rarely' | 'daily';
+  sleepHabits: 'early bird' | 'night owl' | 'flexible';
+  eatingPreference: 'omnivore' | 'vegetarian' | 'vegan';
+  heightMin: number;
+  heightMax: number;
+  occupation: string;
+}
+
 // ── Auth ──
 
 async function ensureUserDoc(base: Partial<UserProfile> = {}) {
@@ -433,6 +449,230 @@ export async function swipeUser(targetId: string, direction: 'left' | 'right') {
   return { remaining, matched };
 }
 
+
+
+const DISCOVER_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+export interface DiscoverProfile {
+  id: string;
+  name: string;
+  age: number;
+  photos: string[];
+  bio: string;
+  location?: { latitude: number; longitude: number };
+  gender?: string;
+  city?: string;
+  relationshipGoal?: string;
+  wantsChildren?: string;
+  hasChildren?: string;
+  smoking?: string;
+  drinking?: string;
+  exerciseFrequency?: string;
+  sleepHabits?: string;
+  eatingPreference?: string;
+  occupation?: string;
+  height?: string;
+}
+
+function toRad(value: number) {
+  return (value * Math.PI) / 180;
+}
+
+function distanceKmBetween(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) {
+  const R = 6371;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLon = toRad(b.longitude - a.longitude);
+  const lat1 = toRad(a.latitude);
+  const lat2 = toRad(b.latitude);
+
+  const x = Math.sin(dLat / 2) ** 2 + Math.sin(dLon / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+  const c = 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+  return R * c;
+}
+
+function parseHeightCm(value?: string) {
+  if (!value) return null;
+  const match = value.match(/(\d{2,3})/);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  if (!Number.isFinite(parsed)) return null;
+  if (parsed < 90) return null;
+  return parsed;
+}
+
+function discoverStorageKey(uid: string) {
+  return `spark_discover_profiles_${uid}`;
+}
+
+function discoverFetchAtKey(uid: string) {
+  return `spark_discover_last_fetch_${uid}`;
+}
+
+function discoverSwipedKey(uid: string) {
+  return `spark_discover_swiped_${uid}`;
+}
+
+function getLocalSwipedIds(uid: string): string[] {
+  const raw = localStorage.getItem(discoverSwipedKey(uid));
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as string[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function setLocalSwipedIds(uid: string, ids: string[]) {
+  localStorage.setItem(discoverSwipedKey(uid), JSON.stringify(ids));
+}
+
+function filterByAdvancedPreferences(profile: DiscoverProfile, me: UserProfile, filters: AdvancedFilters) {
+  if (profile.age < filters.ageMin || profile.age > filters.ageMax) return false;
+
+  if (filters.gender !== 'Any' && profile.gender && profile.gender !== filters.gender) return false;
+
+  if (filters.city.trim().length > 0) {
+    const profileCity = (profile.city ?? '').trim().toLowerCase();
+    if (!profileCity.includes(filters.city.trim().toLowerCase())) return false;
+  }
+
+  if (me.location && profile.location) {
+    const distance = distanceKmBetween(
+      { latitude: me.location.latitude, longitude: me.location.longitude },
+      profile.location,
+    );
+    if (distance > filters.distanceKm) return false;
+  }
+
+  if (profile.relationshipGoal && profile.relationshipGoal !== filters.relationshipGoal) return false;
+  if (profile.wantsChildren && profile.wantsChildren !== filters.wantsChildren) return false;
+  if (profile.hasChildren && profile.hasChildren !== filters.hasChildren) return false;
+  if (profile.smoking && profile.smoking !== filters.smoking) return false;
+  if (profile.drinking && profile.drinking !== filters.drinking) return false;
+  if (profile.exerciseFrequency && profile.exerciseFrequency !== filters.exerciseFrequency) return false;
+  if (profile.sleepHabits && profile.sleepHabits !== filters.sleepHabits) return false;
+  if (profile.eatingPreference && profile.eatingPreference !== filters.eatingPreference) return false;
+
+  if (filters.occupation.trim().length > 0) {
+    const occupation = (profile.occupation ?? '').toLowerCase();
+    if (!occupation.includes(filters.occupation.trim().toLowerCase())) return false;
+  }
+
+  const heightCm = parseHeightCm(profile.height);
+  if (heightCm != null && (heightCm < filters.heightMin || heightCm > filters.heightMax)) return false;
+
+  return true;
+}
+
+async function fetchProfilesFromBackend(uid: string): Promise<DiscoverProfile[]> {
+  const me = await getCurrentUserProfile();
+  if (!me) return [];
+
+  const filters = await getAdvancedFilters();
+  const snap = await getDocs(query(collection(db, 'users')));
+
+  const profiles = snap.docs
+    .filter((d) => d.id !== uid)
+    .map((d) => {
+      const u = d.data() as Record<string, unknown>;
+      const loc = u.location as GeoPoint | undefined;
+      const location = loc ? { latitude: loc.latitude, longitude: loc.longitude } : undefined;
+
+      return {
+        id: d.id,
+        name: String(u.name ?? ''),
+        age: Number(u.age ?? 0),
+        photos: ((u.photos as string[] | undefined) ?? []).slice(0, 6),
+        bio: String(u.bio ?? ''),
+        location,
+        gender: String(u.gender ?? ''),
+        city: String(u.city ?? ''),
+        relationshipGoal: String(u.relationshipGoal ?? ''),
+        wantsChildren: String(u.wantsChildren ?? ''),
+        hasChildren: String(u.hasChildren ?? ''),
+        smoking: String(u.smoking ?? ''),
+        drinking: String(u.drinking ?? ''),
+        exerciseFrequency: String(u.exerciseFrequency ?? ''),
+        sleepHabits: String(u.sleepHabits ?? ''),
+        eatingPreference: String(u.eatingPreference ?? ''),
+        occupation: String(u.occupation ?? ''),
+        height: String(u.height ?? ''),
+      } as DiscoverProfile;
+    })
+    .filter((profile) => profile.age >= 18)
+    .filter((profile) => filterByAdvancedPreferences(profile, me, filters));
+
+  localStorage.setItem(discoverStorageKey(uid), JSON.stringify(profiles));
+  localStorage.setItem(discoverFetchAtKey(uid), String(Date.now()));
+
+  return profiles;
+}
+
+function toMatchResult(profile: DiscoverProfile): MatchResult {
+  return {
+    uid: profile.id,
+    name: profile.name,
+    age: profile.age,
+    bio: profile.bio,
+    photos: profile.photos,
+    matchScore: 0,
+  };
+}
+
+export function getLocalDiscoverSwipedCount() {
+  const uid = getCurrentUserId();
+  if (!uid) return 0;
+  return getLocalSwipedIds(uid).length;
+}
+
+export async function getDiscoverProfiles(options?: { forceRefresh?: boolean }): Promise<{ matches: MatchResult[]; fromCache: boolean }> {
+  const uid = getCurrentUserId();
+  if (!uid) throw new Error('Unauthenticated');
+
+  const forceRefresh = Boolean(options?.forceRefresh);
+  const lastFetch = Number(localStorage.getItem(discoverFetchAtKey(uid)) ?? 0);
+  const within24h = Date.now() - lastFetch < DISCOVER_CACHE_TTL_MS;
+
+  let profiles: DiscoverProfile[] = [];
+  let fromCache = false;
+
+  if (!forceRefresh && within24h) {
+    const raw = localStorage.getItem(discoverStorageKey(uid));
+    profiles = raw ? (JSON.parse(raw) as DiscoverProfile[]) : [];
+    fromCache = true;
+  } else {
+    profiles = await fetchProfilesFromBackend(uid);
+  }
+
+  const swipedIds = new Set(getLocalSwipedIds(uid));
+  const filtered = profiles.filter((profile) => !swipedIds.has(profile.id));
+
+  if (profiles.length !== filtered.length) {
+    localStorage.setItem(discoverStorageKey(uid), JSON.stringify(filtered));
+  }
+
+  return { matches: filtered.map(toMatchResult), fromCache };
+}
+
+export function markDiscoverProfileSwiped(profileId: string) {
+  const uid = getCurrentUserId();
+  if (!uid) return;
+
+  const ids = getLocalSwipedIds(uid);
+  if (!ids.includes(profileId)) {
+    ids.push(profileId);
+    setLocalSwipedIds(uid, ids);
+  }
+
+  const raw = localStorage.getItem(discoverStorageKey(uid));
+  if (!raw) return;
+
+  const profiles = JSON.parse(raw) as DiscoverProfile[];
+  const next = profiles.filter((profile) => profile.id !== profileId);
+  localStorage.setItem(discoverStorageKey(uid), JSON.stringify(next));
+}
+
 // ── Matches & Messages ──
 
 export async function getMatchesForUser(userId: string) {
@@ -502,4 +742,93 @@ export function getFilters(): Filters {
 
 export function setFilters(filters: Filters) {
   localStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
+}
+
+
+function defaultAdvancedFilters(): AdvancedFilters {
+  return {
+    ageMin: 18,
+    ageMax: 99,
+    gender: 'Any',
+    city: '',
+    distanceKm: 25,
+    relationshipGoal: 'open to anything',
+    wantsChildren: 'unsure',
+    hasChildren: 'no',
+    smoking: 'prefer not to say',
+    drinking: 'prefer not to say',
+    exerciseFrequency: 'rarely',
+    sleepHabits: 'flexible',
+    eatingPreference: 'omnivore',
+    heightMin: 150,
+    heightMax: 200,
+    occupation: '',
+  };
+}
+
+export async function getAdvancedFilters(): Promise<AdvancedFilters> {
+  const uid = getCurrentUserId();
+  const fallback = defaultAdvancedFilters();
+  const local = getFilters();
+
+  if (!uid) {
+    return { ...fallback, ...local };
+  }
+
+  const prefSnap = await getDoc(doc(db, 'preferences', uid));
+  if (!prefSnap.exists()) {
+    return { ...fallback, ...local };
+  }
+
+  const pref = prefSnap.data() as Record<string, unknown>;
+
+  return {
+    ageMin: Number(pref.minAge ?? local.ageMin ?? fallback.ageMin),
+    ageMax: Number(pref.maxAge ?? local.ageMax ?? fallback.ageMax),
+    gender: (pref.gender as AdvancedFilters['gender']) ?? local.gender ?? fallback.gender,
+    city: String(pref.city ?? fallback.city),
+    distanceKm: Number(pref.distanceKm ?? fallback.distanceKm),
+    relationshipGoal: (pref.relationshipGoal as AdvancedFilters['relationshipGoal']) ?? fallback.relationshipGoal,
+    wantsChildren: (pref.wantsChildren as AdvancedFilters['wantsChildren']) ?? fallback.wantsChildren,
+    hasChildren: (pref.hasChildren as AdvancedFilters['hasChildren']) ?? fallback.hasChildren,
+    smoking: (pref.smoking as AdvancedFilters['smoking']) ?? fallback.smoking,
+    drinking: (pref.drinking as AdvancedFilters['drinking']) ?? fallback.drinking,
+    exerciseFrequency: (pref.exerciseFrequency as AdvancedFilters['exerciseFrequency']) ?? fallback.exerciseFrequency,
+    sleepHabits: (pref.sleepHabits as AdvancedFilters['sleepHabits']) ?? fallback.sleepHabits,
+    eatingPreference: (pref.eatingPreference as AdvancedFilters['eatingPreference']) ?? fallback.eatingPreference,
+    heightMin: Number(pref.heightMin ?? fallback.heightMin),
+    heightMax: Number(pref.heightMax ?? fallback.heightMax),
+    occupation: String(pref.occupation ?? fallback.occupation),
+  };
+}
+
+export async function saveAdvancedFilters(filters: AdvancedFilters) {
+  const uid = getCurrentUserId();
+
+  setFilters({ ageMin: filters.ageMin, ageMax: filters.ageMax, gender: filters.gender });
+
+  if (!uid) return;
+
+  await setDoc(
+    doc(db, 'preferences', uid),
+    {
+      minAge: filters.ageMin,
+      maxAge: filters.ageMax,
+      gender: filters.gender,
+      city: filters.city,
+      distanceKm: filters.distanceKm,
+      relationshipGoal: filters.relationshipGoal,
+      wantsChildren: filters.wantsChildren,
+      hasChildren: filters.hasChildren,
+      smoking: filters.smoking,
+      drinking: filters.drinking,
+      exerciseFrequency: filters.exerciseFrequency,
+      sleepHabits: filters.sleepHabits,
+      eatingPreference: filters.eatingPreference,
+      heightMin: filters.heightMin,
+      heightMax: filters.heightMax,
+      occupation: filters.occupation,
+    },
+    { merge: true },
+  );
 }

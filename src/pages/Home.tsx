@@ -1,50 +1,53 @@
 import { useEffect, useState } from 'react';
-import { getMatches, swipeUser, MatchResult } from '@/lib/store';
+import { getDiscoverProfiles, getLocalDiscoverSwipedCount, markDiscoverProfileSwiped, swipeUser, MatchResult } from '@/lib/store';
 import BottomNav from '@/components/BottomNav';
 import SwipeCard from '@/components/SwipeCard';
+import { Button } from '@/components/ui/button';
 
 export default function Home() {
   const [candidates, setCandidates] = useState<MatchResult[]>([]);
   const [swipedCount, setSwipedCount] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
   const [matchPopup, setMatchPopup] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const loadCandidates = async (forceRefresh = false) => {
+    setLoading(true);
+    try {
+      const result = await getDiscoverProfiles({ forceRefresh });
+      setCandidates(result.matches);
+      setSwipedCount(getLocalDiscoverSwipedCount());
+      setMessage(result.matches.length ? null : 'No profiles match your filters right now.');
+    } catch (e) {
+      console.error('Failed to load matches', e);
+      setMessage('Could not load profiles right now.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const result = await getMatches();
-        setCandidates(result.matches);
-        setSwipedCount(25 - result.remaining);
-        if (result.message === 'no_more_cards_today') {
-          setMessage('No More Cards for Today');
-        } else if (result.message === 'no_profiles_for_priority_order') {
-          setMessage('No profiles found for your priority order right now.');
-        }
-      } catch (e) {
-        console.error('Failed to load matches', e);
-      }
-    };
-    void load();
+    void loadCandidates(false);
   }, []);
 
   const current = candidates[0];
 
   const onSwipe = async (direction: 'left' | 'right') => {
     if (!current) return;
+
+    markDiscoverProfileSwiped(current.uid);
+    setCandidates((prev) => prev.slice(1));
+    setSwipedCount(getLocalDiscoverSwipedCount());
+
     try {
       const result = await swipeUser(current.uid, direction);
-      setSwipedCount(25 - result.remaining);
       if (result.matched) {
         setMatchPopup(current.name);
         setTimeout(() => setMatchPopup(null), 3000);
       }
-      if (result.remaining <= 0) {
-        setMessage('No More Cards for Today');
-      }
     } catch (e) {
       console.error('Swipe failed', e);
     }
-    setCandidates((prev) => prev.slice(1));
   };
 
   return (
@@ -52,15 +55,22 @@ export default function Home() {
       <div className="max-w-sm mx-auto px-4 pt-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-heading font-bold">Discover</h1>
-          <span className="text-sm text-muted-foreground">{swipedCount}/25 swiped</span>
+          <span className="text-sm text-muted-foreground">{swipedCount} swiped</span>
         </div>
+
+        <Button variant="outline" className="w-full mb-4 rounded-xl" onClick={() => void loadCandidates(true)}>
+          Refresh Profiles
+        </Button>
+
         {message ? (
           <p className="text-muted-foreground text-center py-20">{message}</p>
+        ) : loading ? (
+          <p className="text-muted-foreground text-center py-20">Loading profiles...</p>
         ) : current ? (
           <SwipeCard user={current} onSwipeLeft={() => onSwipe('left')} onSwipeRight={() => onSwipe('right')} />
         ) : (
           <p className="text-muted-foreground text-center py-20">
-            No candidates found nearby matching your top priorities. Try updating priorities or expanding filters.
+            No profiles left in your local list. Try refresh after some time.
           </p>
         )}
       </div>
