@@ -50,6 +50,17 @@ export interface UserProfile {
   swipeResetAt?: Timestamp;
   photos: string[];
   matchingScores?: PersonalityScores;
+  city?: string;
+  relationshipGoal?: 'short-term' | 'long-term' | 'friends' | 'open to anything';
+  wantsChildren?: 'yes' | 'no' | 'unsure';
+  hasChildren?: 'yes' | 'no';
+  smoking?: 'yes' | 'no' | 'prefer not to say';
+  drinking?: 'yes' | 'no' | 'prefer not to say';
+  exerciseFrequency?: 'never' | 'rarely' | 'daily';
+  sleepHabits?: 'early bird' | 'night owl' | 'flexible';
+  eatingPreference?: 'omnivore' | 'vegetarian' | 'vegan';
+  occupation?: string;
+  height?: string;
 }
 
 export interface MatchResult {
@@ -189,6 +200,17 @@ export async function saveQuestionnaire(userId: string, payload: {
   priorityOrder: TraitKey[];
   minAge: number;
   maxAge: number;
+  city: string;
+  relationshipGoal: NonNullable<UserProfile['relationshipGoal']>;
+  wantsChildren: NonNullable<UserProfile['wantsChildren']>;
+  hasChildren: NonNullable<UserProfile['hasChildren']>;
+  smoking: NonNullable<UserProfile['smoking']>;
+  drinking: NonNullable<UserProfile['drinking']>;
+  exerciseFrequency: NonNullable<UserProfile['exerciseFrequency']>;
+  sleepHabits: NonNullable<UserProfile['sleepHabits']>;
+  eatingPreference: NonNullable<UserProfile['eatingPreference']>;
+  occupation: string;
+  height: string;
 }) {
   await updateDoc(doc(db, 'users', userId), {
     bio: payload.bio,
@@ -198,6 +220,17 @@ export async function saveQuestionnaire(userId: string, payload: {
     geohash: geohashForLocation([payload.lat, payload.lon]),
     onboardingCompleted: true,
     matchingScores: payload.scores,
+    city: payload.city,
+    relationshipGoal: payload.relationshipGoal,
+    wantsChildren: payload.wantsChildren,
+    hasChildren: payload.hasChildren,
+    smoking: payload.smoking,
+    drinking: payload.drinking,
+    exerciseFrequency: payload.exerciseFrequency,
+    sleepHabits: payload.sleepHabits,
+    eatingPreference: payload.eatingPreference,
+    occupation: payload.occupation,
+    height: payload.height,
   });
 
   await setDoc(doc(db, 'personalityScores', userId), payload.scores);
@@ -211,6 +244,14 @@ export async function saveQuestionnaire(userId: string, payload: {
     priorityOrder: payload.priorityOrder,
     minAge: payload.minAge,
     maxAge: payload.maxAge,
+    relationshipGoal: payload.relationshipGoal,
+    wantsChildren: payload.wantsChildren,
+    hasChildren: payload.hasChildren,
+    smoking: payload.smoking,
+    drinking: payload.drinking,
+    exerciseFrequency: payload.exerciseFrequency,
+    sleepHabits: payload.sleepHabits,
+    eatingPreference: payload.eatingPreference,
   });
 }
 
