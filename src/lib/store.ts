@@ -457,10 +457,10 @@ export interface DiscoverProfile {
   id: string;
   name: string;
   age: number;
-  photos: string[];
-  bio: string;
-  location?: { latitude: number; longitude: number };
   gender?: string;
+  bio?: string;
+  photos: string[];
+  location?: { latitude: number; longitude: number };
   city?: string;
   relationshipGoal?: string;
   wantsChildren?: string;
@@ -500,6 +500,7 @@ function parseHeightCm(value?: string) {
   return parsed;
 }
 
+
 function discoverStorageKey(uid: string) {
   return `spark_discover_profiles_${uid}`;
 }
@@ -510,6 +511,14 @@ function discoverFetchAtKey(uid: string) {
 
 function discoverSwipedKey(uid: string) {
   return `spark_discover_swiped_${uid}`;
+}
+
+function discoverLikedKey(uid: string) {
+  return `spark_discover_liked_${uid}`;
+}
+
+function discoverDislikedKey(uid: string) {
+  return `spark_discover_disliked_${uid}`;
 }
 
 function getLocalSwipedIds(uid: string): string[] {
@@ -525,6 +534,38 @@ function getLocalSwipedIds(uid: string): string[] {
 
 function setLocalSwipedIds(uid: string, ids: string[]) {
   localStorage.setItem(discoverSwipedKey(uid), JSON.stringify(ids));
+}
+
+function getLocalDirectionIds(uid: string, direction: 'left' | 'right') {
+  const key = direction === 'right' ? discoverLikedKey(uid) : discoverDislikedKey(uid);
+  const raw = localStorage.getItem(key);
+  if (!raw) return [] as string[];
+  try {
+    const parsed = JSON.parse(raw) as string[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [] as string[];
+  }
+}
+
+function setLocalDirectionIds(uid: string, direction: 'left' | 'right', ids: string[]) {
+  const key = direction === 'right' ? discoverLikedKey(uid) : discoverDislikedKey(uid);
+  localStorage.setItem(key, JSON.stringify(ids));
+}
+
+function getStoredDiscoverProfiles(uid: string) {
+  const raw = localStorage.getItem(discoverStorageKey(uid));
+  if (!raw) return [] as DiscoverProfile[];
+  try {
+    const parsed = JSON.parse(raw) as DiscoverProfile[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [] as DiscoverProfile[];
+  }
+}
+
+function setStoredDiscoverProfiles(uid: string, profiles: DiscoverProfile[]) {
+  localStorage.setItem(discoverStorageKey(uid), JSON.stringify(profiles));
 }
 
 function filterByAdvancedPreferences(profile: DiscoverProfile, me: UserProfile, filters: AdvancedFilters) {
@@ -583,10 +624,10 @@ async function fetchProfilesFromBackend(uid: string): Promise<DiscoverProfile[]>
         id: d.id,
         name: String(u.name ?? ''),
         age: Number(u.age ?? 0),
-        photos: ((u.photos as string[] | undefined) ?? []).slice(0, 6),
-        bio: String(u.bio ?? ''),
-        location,
         gender: String(u.gender ?? ''),
+        bio: String(u.bio ?? ''),
+        photos: ((u.photos as string[] | undefined) ?? []).slice(0, 6),
+        location,
         city: String(u.city ?? ''),
         relationshipGoal: String(u.relationshipGoal ?? ''),
         wantsChildren: String(u.wantsChildren ?? ''),
@@ -603,7 +644,7 @@ async function fetchProfilesFromBackend(uid: string): Promise<DiscoverProfile[]>
     .filter((profile) => profile.age >= 18)
     .filter((profile) => filterByAdvancedPreferences(profile, me, filters));
 
-  localStorage.setItem(discoverStorageKey(uid), JSON.stringify(profiles));
+  setStoredDiscoverProfiles(uid, profiles);
   localStorage.setItem(discoverFetchAtKey(uid), String(Date.now()));
 
   return profiles;
@@ -614,7 +655,7 @@ function toMatchResult(profile: DiscoverProfile): MatchResult {
     uid: profile.id,
     name: profile.name,
     age: profile.age,
-    bio: profile.bio,
+    bio: profile.bio ?? '',
     photos: profile.photos,
     matchScore: 0,
   };
@@ -638,39 +679,48 @@ export async function getDiscoverProfiles(options?: { forceRefresh?: boolean }):
   let fromCache = false;
 
   if (!forceRefresh && within24h) {
-    const raw = localStorage.getItem(discoverStorageKey(uid));
-    profiles = raw ? (JSON.parse(raw) as DiscoverProfile[]) : [];
+    profiles = getStoredDiscoverProfiles(uid);
     fromCache = true;
   } else {
     profiles = await fetchProfilesFromBackend(uid);
+    fromCache = false;
   }
 
   const swipedIds = new Set(getLocalSwipedIds(uid));
   const filtered = profiles.filter((profile) => !swipedIds.has(profile.id));
 
   if (profiles.length !== filtered.length) {
-    localStorage.setItem(discoverStorageKey(uid), JSON.stringify(filtered));
+    setStoredDiscoverProfiles(uid, filtered);
   }
 
   return { matches: filtered.map(toMatchResult), fromCache };
 }
 
-export function markDiscoverProfileSwiped(profileId: string) {
+export function getDiscoverProfileById(profileId: string) {
+  const uid = getCurrentUserId();
+  if (!uid) return null;
+  return getStoredDiscoverProfiles(uid).find((profile) => profile.id === profileId) ?? null;
+}
+
+export function markDiscoverProfileSwiped(profileId: string, direction: 'left' | 'right') {
   const uid = getCurrentUserId();
   if (!uid) return;
 
-  const ids = getLocalSwipedIds(uid);
-  if (!ids.includes(profileId)) {
-    ids.push(profileId);
-    setLocalSwipedIds(uid, ids);
+  const swipedIds = getLocalSwipedIds(uid);
+  if (!swipedIds.includes(profileId)) {
+    swipedIds.push(profileId);
+    setLocalSwipedIds(uid, swipedIds);
   }
 
-  const raw = localStorage.getItem(discoverStorageKey(uid));
-  if (!raw) return;
+  const directionIds = getLocalDirectionIds(uid, direction);
+  if (!directionIds.includes(profileId)) {
+    directionIds.push(profileId);
+    setLocalDirectionIds(uid, direction, directionIds);
+  }
 
-  const profiles = JSON.parse(raw) as DiscoverProfile[];
+  const profiles = getStoredDiscoverProfiles(uid);
   const next = profiles.filter((profile) => profile.id !== profileId);
-  localStorage.setItem(discoverStorageKey(uid), JSON.stringify(next));
+  setStoredDiscoverProfiles(uid, next);
 }
 
 // ── Matches & Messages ──

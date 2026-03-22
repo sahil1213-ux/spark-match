@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { getDiscoverProfiles, getLocalDiscoverSwipedCount, markDiscoverProfileSwiped, swipeUser, MatchResult } from '@/lib/store';
+import { useNavigate } from 'react-router-dom';
+import { getDiscoverProfileById, getDiscoverProfiles, getLocalDiscoverSwipedCount, markDiscoverProfileSwiped, swipeUser, MatchResult } from '@/lib/store';
 import BottomNav from '@/components/BottomNav';
 import SwipeCard from '@/components/SwipeCard';
 import { Button } from '@/components/ui/button';
 
 export default function Home() {
+  const navigate = useNavigate();
   const [candidates, setCandidates] = useState<MatchResult[]>([]);
   const [swipedCount, setSwipedCount] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
@@ -35,7 +37,7 @@ export default function Home() {
   const onSwipe = async (direction: 'left' | 'right') => {
     if (!current) return;
 
-    markDiscoverProfileSwiped(current.uid);
+    markDiscoverProfileSwiped(current.uid, direction);
     setCandidates((prev) => prev.slice(1));
     setSwipedCount(getLocalDiscoverSwipedCount());
 
@@ -67,7 +69,7 @@ export default function Home() {
         ) : loading ? (
           <p className="text-muted-foreground text-center py-20">Loading profiles...</p>
         ) : current ? (
-          <SwipeCard user={current} onSwipeLeft={() => onSwipe('left')} onSwipeRight={() => onSwipe('right')} />
+          <SwipeCard user={current} onSwipeLeft={() => onSwipe('left')} onSwipeRight={() => onSwipe('right')} onOpenProfile={() => navigate(`/discover/${current.uid}`, { state: { profile: getDiscoverProfileById(current.uid) ?? undefined } })} />
         ) : (
           <p className="text-muted-foreground text-center py-20">
             No profiles left in your local list. Try refresh after some time.
