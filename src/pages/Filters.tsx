@@ -1,62 +1,94 @@
 import { useEffect, useState } from 'react';
-import { getFilters, getUserPriorityOrder, saveUserPriorityOrder, setFilters } from '@/lib/store';
-import type { TraitKey } from '@/lib/scoring';
+import { useNavigate } from 'react-router-dom';
+import { AdvancedFilters, getAdvancedFilters, saveAdvancedFilters } from '@/lib/store';
 import BottomNav from '@/components/BottomNav';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { toast } from 'sonner';
 
-function titleCase(trait: string) {
-  return trait.charAt(0).toUpperCase() + trait.slice(1);
+const defaultFilters: AdvancedFilters = {
+  ageMin: null,
+  ageMax: null,
+  gender: null,
+  distanceKm: 25,
+  relationshipGoal: null,
+  smoking: null,
+  drinking: null,
+  eatingPreference: null,
+  wantsChildren: null,
+  hasChildren: null,
+  exerciseFrequency: null,
+  sleepHabits: null,
+  heightMin: null,
+  heightMax: null,
+  occupation: '',
+};
+
+function OptionGroup<T extends string>({
+  title,
+  options,
+  value,
+  onChange,
+}: {
+  title: string;
+  options: readonly T[];
+  value: T | null;
+  onChange: (value: T | null) => void;
+}) {
+  return (
+    <div>
+      <label className="text-sm font-medium mb-2 block">{title}</label>
+      <div className="grid grid-cols-2 gap-2">
+        {options.map((option) => {
+          const selected = value === option;
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() => onChange(selected ? null : option)}
+              className={`rounded-2xl px-3 py-2.5 text-sm font-medium capitalize transition-all ${
+                selected
+                  ? 'gradient-coral text-primary-foreground'
+                  : 'bg-secondary text-secondary-foreground border border-border'
+              }`}
+            >
+              {option}
+            </button>
+          );
+        })}
+      </div>
+      {!value && <p className="mt-1 text-xs text-muted-foreground">Not selected</p>}
+    </div>
+  );
 }
 
 export default function Filters() {
-  const current = getFilters();
-  const [ageRange, setAgeRange] = useState([current.ageMin, current.ageMax]);
-  const [gender, setGender] = useState(current.gender);
-  const [priorityOrder, setPriorityOrder] = useState<TraitKey[]>([]);
-  const [draggedTrait, setDraggedTrait] = useState<TraitKey | null>(null);
+  const navigate = useNavigate();
+  const [filters, setFilters] = useState<AdvancedFilters>(defaultFilters);
   const [saving, setSaving] = useState(false);
 
-  const genders: Array<'Male' | 'Female' | 'Any'> = ['Male', 'Female', 'Any'];
-
   useEffect(() => {
-    const loadPriority = async () => {
+    const load = async () => {
       try {
-        const order = await getUserPriorityOrder();
-        setPriorityOrder(order);
+        const saved = await getAdvancedFilters();
+        setFilters({ ...defaultFilters, ...saved });
       } catch (error) {
-        console.error('Unable to load priority order', error);
+        console.error('Failed to load filters', error);
       }
     };
 
-    void loadPriority();
+    void load();
   }, []);
-
-  const handleDrop = (targetTrait: TraitKey) => {
-    if (!draggedTrait || draggedTrait === targetTrait) return;
-
-    setPriorityOrder((prev) => {
-      const withoutDragged = prev.filter((trait) => trait !== draggedTrait);
-      const targetIndex = withoutDragged.indexOf(targetTrait);
-      withoutDragged.splice(targetIndex, 0, draggedTrait);
-      return withoutDragged;
-    });
-
-    setDraggedTrait(null);
-  };
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      setFilters({ ageMin: ageRange[0], ageMax: ageRange[1], gender });
-      if (priorityOrder.length > 0) {
-        await saveUserPriorityOrder(priorityOrder);
-      }
-      toast.success('Filters and priority saved!');
+      await saveAdvancedFilters(filters);
+      toast.success('Filters applied. Refreshing recommendations...');
+      navigate('/home', { replace: true, state: { forceRefresh: true } });
     } catch (error) {
       console.error('Failed to save filters', error);
-      toast.error('Could not save your changes. Please try again.');
+      toast.error('Could not apply filters. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -64,69 +96,51 @@ export default function Filters() {
 
   return (
     <div className="min-h-screen bg-background safe-top pb-24">
-      <div className="max-w-sm mx-auto px-6 pt-6">
-        <h1 className="text-xl font-heading font-bold mb-6">Filters</h1>
+      <div className="max-w-sm mx-auto px-5 pt-6">
+        <h1 className="text-2xl font-heading font-bold mb-6">Filters</h1>
 
-        <div className="space-y-8">
+        <div className="space-y-6 rounded-3xl bg-card/70 p-4 border">
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <label className="text-sm font-medium">Age range</label>
-              <span className="text-sm text-muted-foreground">{ageRange[0]} – {ageRange[1]}</span>
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-sm font-medium">Age Range</label>
+              <span className="text-sm text-muted-foreground">
+                {filters.ageMin == null || filters.ageMax == null ? 'Any' : `${filters.ageMin} – ${filters.ageMax}`}
+              </span>
             </div>
             <Slider
-              value={ageRange}
-              onValueChange={setAgeRange}
+              value={[filters.ageMin ?? 18, filters.ageMax ?? 99]}
+              onValueChange={(v) => setFilters((f) => ({ ...f, ageMin: v[0], ageMax: v[1] }))}
               min={18}
-              max={65}
+              max={80}
               step={1}
               minStepsBetweenThumbs={1}
-              className="w-full"
             />
           </div>
 
-          <div>
-            <label className="text-sm font-medium mb-3 block">Show me</label>
-            <div className="flex gap-2">
-              {genders.map((g) => (
-                <button
-                  key={g}
-                  onClick={() => setGender(g)}
-                  className={`flex-1 py-3 rounded-xl text-sm font-medium transition-all ${
-                    gender === g ? 'gradient-coral text-primary-foreground' : 'bg-secondary text-secondary-foreground'
-                  }`}
-                >
-                  {g}
-                </button>
-              ))}
-            </div>
-          </div>
+          <OptionGroup title="Preferred Gender" options={['Male', 'Female', 'Any'] as const} value={filters.gender} onChange={(gender) => setFilters((f) => ({ ...f, gender }))} />
 
           <div>
-            <label className="text-sm font-medium mb-3 block">Priority list (drag to reorder)</label>
-            <div className="space-y-2">
-              {priorityOrder.map((trait, index) => (
-                <div
-                  key={trait}
-                  draggable
-                  onDragStart={() => setDraggedTrait(trait)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => handleDrop(trait)}
-                  className="rounded-xl border bg-card px-3 py-2 flex items-center justify-between"
-                >
-                  <span className="text-sm font-medium">{index + 1}. {titleCase(trait)}</span>
-                  <span className="text-xs text-muted-foreground">drag</span>
-                </div>
-              ))}
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-muted-foreground">Distance range</span>
+              <span className="text-xs text-muted-foreground">Within {filters.distanceKm} km</span>
             </div>
+            <Slider
+              value={[filters.distanceKm]}
+              onValueChange={(v) => setFilters((f) => ({ ...f, distanceKm: v[0] }))}
+              min={5}
+              max={100}
+              step={5}
+            />
           </div>
+
+          <OptionGroup title="Relationship Intent" options={['short-term', 'long-term', 'friends', 'open to anything'] as const} value={filters.relationshipGoal} onChange={(relationshipGoal) => setFilters((f) => ({ ...f, relationshipGoal }))} />
+          <OptionGroup title="Smoke" options={['yes', 'no', 'prefer not to say'] as const} value={filters.smoking} onChange={(smoking) => setFilters((f) => ({ ...f, smoking }))} />
+          <OptionGroup title="Drink" options={['yes', 'no', 'prefer not to say'] as const} value={filters.drinking} onChange={(drinking) => setFilters((f) => ({ ...f, drinking }))} />
+          <OptionGroup title="Eating preference" options={['omnivore', 'vegetarian', 'vegan'] as const} value={filters.eatingPreference} onChange={(eatingPreference) => setFilters((f) => ({ ...f, eatingPreference }))} />
         </div>
 
-        <Button
-          onClick={() => void handleSave()}
-          disabled={saving}
-          className="w-full h-12 rounded-xl gradient-coral text-primary-foreground font-semibold text-base border-0 mt-10"
-        >
-          {saving ? 'Saving...' : 'Apply Filters'}
+        <Button onClick={() => void handleSave()} disabled={saving} className="w-full h-12 rounded-2xl gradient-coral text-primary-foreground font-semibold text-base mt-6">
+          {saving ? 'Applying...' : 'Apply Filters'}
         </Button>
       </div>
       <BottomNav />
