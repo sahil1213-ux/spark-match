@@ -90,7 +90,7 @@ export default function Profile() {
             )}
             <button
               type="button"
-              onClick={() => navigate('/photos')}
+              onClick={() => navigate('/profile/edit')}
               className="absolute bottom-1 right-1 rounded-full bg-background p-2 shadow-md border"
             >
               <Edit2 className="h-4 w-4 text-foreground" />
@@ -106,7 +106,7 @@ export default function Profile() {
           </p>
 
           <div className="mt-5 grid grid-cols-2 gap-3">
-            <Button className="rounded-2xl h-11 gradient-coral" onClick={() => setEditingBio((value) => !value)}>
+            <Button className="rounded-2xl h-11 gradient-coral" onClick={() => navigate('/profile/edit')}>
               Edit Profile
             </Button>
             <Button variant="outline" className="rounded-2xl h-11" onClick={() => navigate('/filters')}>

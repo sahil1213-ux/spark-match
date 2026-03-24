@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AdvancedFilters, getAdvancedFilters, saveAdvancedFilters } from '@/lib/store';
 import BottomNav from '@/components/BottomNav';
 import { Button } from '@/components/ui/button';
@@ -6,21 +7,20 @@ import { Slider } from '@/components/ui/slider';
 import { toast } from 'sonner';
 
 const defaultFilters: AdvancedFilters = {
-  ageMin: 18,
-  ageMax: 99,
-  gender: 'Any',
-  city: '',
+  ageMin: null,
+  ageMax: null,
+  gender: null,
   distanceKm: 25,
-  relationshipGoal: 'open to anything',
-  wantsChildren: 'unsure',
-  hasChildren: 'no',
-  smoking: 'prefer not to say',
-  drinking: 'prefer not to say',
-  exerciseFrequency: 'rarely',
-  sleepHabits: 'flexible',
-  eatingPreference: 'omnivore',
-  heightMin: 150,
-  heightMax: 200,
+  relationshipGoal: null,
+  smoking: null,
+  drinking: null,
+  eatingPreference: null,
+  wantsChildren: null,
+  hasChildren: null,
+  exerciseFrequency: null,
+  sleepHabits: null,
+  heightMin: null,
+  heightMax: null,
   occupation: '',
 };
 
@@ -32,33 +32,38 @@ function OptionGroup<T extends string>({
 }: {
   title: string;
   options: readonly T[];
-  value: T;
-  onChange: (value: T) => void;
+  value: T | null;
+  onChange: (value: T | null) => void;
 }) {
   return (
     <div>
-      <label className="text-sm font-medium mb-3 block">{title}</label>
+      <label className="text-sm font-medium mb-2 block">{title}</label>
       <div className="grid grid-cols-2 gap-2">
-        {options.map((option) => (
-          <button
-            key={option}
-            type="button"
-            onClick={() => onChange(option)}
-            className={`rounded-2xl px-3 py-2.5 text-sm font-medium capitalize transition-all ${
-              value === option
-                ? 'gradient-coral text-primary-foreground'
-                : 'bg-secondary text-secondary-foreground border border-border'
-            }`}
-          >
-            {option}
-          </button>
-        ))}
+        {options.map((option) => {
+          const selected = value === option;
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() => onChange(selected ? null : option)}
+              className={`rounded-2xl px-3 py-2.5 text-sm font-medium capitalize transition-all ${
+                selected
+                  ? 'gradient-coral text-primary-foreground'
+                  : 'bg-secondary text-secondary-foreground border border-border'
+              }`}
+            >
+              {option}
+            </button>
+          );
+        })}
       </div>
+      {!value && <p className="mt-1 text-xs text-muted-foreground">Not selected</p>}
     </div>
   );
 }
 
 export default function Filters() {
+  const navigate = useNavigate();
   const [filters, setFilters] = useState<AdvancedFilters>(defaultFilters);
   const [saving, setSaving] = useState(false);
 
@@ -66,7 +71,7 @@ export default function Filters() {
     const load = async () => {
       try {
         const saved = await getAdvancedFilters();
-        setFilters(saved);
+        setFilters({ ...defaultFilters, ...saved });
       } catch (error) {
         console.error('Failed to load filters', error);
       }
@@ -79,7 +84,8 @@ export default function Filters() {
     setSaving(true);
     try {
       await saveAdvancedFilters(filters);
-      toast.success('Filters applied');
+      toast.success('Filters applied. Refreshing recommendations...');
+      navigate('/home', { replace: true, state: { forceRefresh: true } });
     } catch (error) {
       console.error('Failed to save filters', error);
       toast.error('Could not apply filters. Please try again.');
@@ -97,10 +103,12 @@ export default function Filters() {
           <div>
             <div className="flex items-center justify-between mb-3">
               <label className="text-sm font-medium">Age Range</label>
-              <span className="text-sm text-muted-foreground">{filters.ageMin} – {filters.ageMax}</span>
+              <span className="text-sm text-muted-foreground">
+                {filters.ageMin == null || filters.ageMax == null ? 'Any' : `${filters.ageMin} – ${filters.ageMax}`}
+              </span>
             </div>
             <Slider
-              value={[filters.ageMin, filters.ageMax]}
+              value={[filters.ageMin ?? 18, filters.ageMax ?? 99]}
               onValueChange={(v) => setFilters((f) => ({ ...f, ageMin: v[0], ageMax: v[1] }))}
               min={18}
               max={80}
@@ -109,33 +117,7 @@ export default function Filters() {
             />
           </div>
 
-          <OptionGroup
-            title="Preferred Gender"
-            options={['Male', 'Female', 'Any'] as const}
-            value={filters.gender}
-            onChange={(gender) => setFilters((f) => ({ ...f, gender }))}
-          />
-
-          <div>
-            <label className="text-sm font-medium mb-2 block">Location</label>
-            <input
-              className="w-full rounded-2xl border bg-background px-3 py-2.5 mb-3"
-              placeholder="Current city / town"
-              value={filters.city}
-              onChange={(e) => setFilters((f) => ({ ...f, city: e.target.value }))}
-            />
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-muted-foreground">Distance range</span>
-              <span className="text-xs text-muted-foreground">Within {filters.distanceKm} km</span>
-            </div>
-            <Slider
-              value={[filters.distanceKm]}
-              onValueChange={(v) => setFilters((f) => ({ ...f, distanceKm: v[0] }))}
-              min={5}
-              max={100}
-              step={5}
-            />
-          </div>
+          <OptionGroup title="Preferred Gender" options={['Male', 'Female', 'Any'] as const} value={filters.gender} onChange={(gender) => setFilters((f) => ({ ...f, gender }))} />
 
           <OptionGroup
             title="Relationship Intent"
@@ -194,36 +176,26 @@ export default function Filters() {
           />
 
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <label className="text-sm font-medium">Height</label>
-              <span className="text-sm text-muted-foreground">{filters.heightMin} – {filters.heightMax} cm</span>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-muted-foreground">Distance range</span>
+              <span className="text-xs text-muted-foreground">Within {filters.distanceKm} km</span>
             </div>
             <Slider
-              value={[filters.heightMin, filters.heightMax]}
-              onValueChange={(v) => setFilters((f) => ({ ...f, heightMin: v[0], heightMax: v[1] }))}
-              min={130}
-              max={220}
-              step={1}
-              minStepsBetweenThumbs={1}
+              value={[filters.distanceKm]}
+              onValueChange={(v) => setFilters((f) => ({ ...f, distanceKm: v[0] }))}
+              min={5}
+              max={100}
+              step={5}
             />
           </div>
 
-          <div>
-            <label className="text-sm font-medium mb-2 block">Occupation</label>
-            <input
-              className="w-full rounded-2xl border bg-background px-3 py-2.5"
-              placeholder="e.g. Designer, Engineer"
-              value={filters.occupation}
-              onChange={(e) => setFilters((f) => ({ ...f, occupation: e.target.value }))}
-            />
-          </div>
+          <OptionGroup title="Relationship Intent" options={['short-term', 'long-term', 'friends', 'open to anything'] as const} value={filters.relationshipGoal} onChange={(relationshipGoal) => setFilters((f) => ({ ...f, relationshipGoal }))} />
+          <OptionGroup title="Smoke" options={['yes', 'no', 'prefer not to say'] as const} value={filters.smoking} onChange={(smoking) => setFilters((f) => ({ ...f, smoking }))} />
+          <OptionGroup title="Drink" options={['yes', 'no', 'prefer not to say'] as const} value={filters.drinking} onChange={(drinking) => setFilters((f) => ({ ...f, drinking }))} />
+          <OptionGroup title="Eating preference" options={['omnivore', 'vegetarian', 'vegan'] as const} value={filters.eatingPreference} onChange={(eatingPreference) => setFilters((f) => ({ ...f, eatingPreference }))} />
         </div>
 
-        <Button
-          onClick={() => void handleSave()}
-          disabled={saving}
-          className="w-full h-12 rounded-2xl gradient-coral text-primary-foreground font-semibold text-base mt-6"
-        >
+        <Button onClick={() => void handleSave()} disabled={saving} className="w-full h-12 rounded-2xl gradient-coral text-primary-foreground font-semibold text-base mt-6">
           {saving ? 'Applying...' : 'Apply Filters'}
         </Button>
       </div>

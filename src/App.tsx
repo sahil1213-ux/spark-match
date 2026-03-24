@@ -11,6 +11,7 @@ import PhotoUpload from "./pages/PhotoUpload";
 import Home from "./pages/Home";
 import DiscoverProfilePage from "./pages/DiscoverProfile";
 import Profile from "./pages/Profile";
+import EditProfile from "./pages/EditProfile";
 import ChatList from "./pages/ChatList";
 import Chat from "./pages/Chat";
 import Filters from "./pages/Filters";
@@ -60,6 +61,7 @@ const App = () => {
             <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
             <Route path="/discover/:profileId" element={<ProtectedRoute><DiscoverProfilePage /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+            <Route path="/profile/edit" element={<ProtectedRoute><EditProfile /></ProtectedRoute>} />
             <Route path="/chats" element={<ProtectedRoute><ChatList /></ProtectedRoute>} />
             <Route path="/chat/:userId" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
             <Route path="/filters" element={<ProtectedRoute><Filters /></ProtectedRoute>} />

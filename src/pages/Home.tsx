@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { getDiscoverProfileById, getDiscoverProfiles, getLocalDiscoverSwipedCount, markDiscoverProfileSwiped, swipeUser, MatchResult } from '@/lib/store';
 import BottomNav from '@/components/BottomNav';
 import SwipeCard from '@/components/SwipeCard';
@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 
 export default function Home() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [candidates, setCandidates] = useState<MatchResult[]>([]);
   const [swipedCount, setSwipedCount] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
@@ -29,8 +30,9 @@ export default function Home() {
   };
 
   useEffect(() => {
-    void loadCandidates(false);
-  }, []);
+    const force = Boolean((location.state as { forceRefresh?: boolean } | null)?.forceRefresh);
+    void loadCandidates(force);
+  }, [location.state]);
 
   const current = candidates[0];
 
