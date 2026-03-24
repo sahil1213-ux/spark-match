@@ -22,20 +22,41 @@ const likertQuestions: { trait: TraitKey; text: string }[] = [
   { trait: 'neuroticism', text: 'I get anxious in new situations.' },
 ];
 
-const LIKERT = [1, 2, 3, 4, 5];
+const partnerPriorities: Array<{ trait: TraitKey; emoji: string; title: string; subtitle: string }> = [
+  { trait: 'openness', emoji: '🌈', title: 'Loves trying new things', subtitle: 'Creative, curious, and open-minded' },
+  { trait: 'conscientiousness', emoji: '📋', title: 'Has their life sorted', subtitle: 'Responsible, disciplined, and dependable' },
+  { trait: 'extraversion', emoji: '🎉', title: 'Fun & social', subtitle: 'Outgoing, talkative, and full of energy' },
+  { trait: 'agreeableness', emoji: '🤝', title: 'Kind-hearted', subtitle: 'Supportive, caring, and emotionally mature' },
+  { trait: 'neuroticism', emoji: '🧘', title: 'Emotionally steady', subtitle: 'Calm, stable, and handles stress well' },
+];
 
-function titleCase(trait: string) {
-  return trait.charAt(0).toUpperCase() + trait.slice(1);
-}
+const LIKERT = [1, 2, 3, 4, 5];
+const TOTAL_STEPS = 5;
 
 export default function Questionnaire() {
   const navigate = useNavigate();
-  const [step, setStep] = useState(1); // 1-3=personality pages, 4=priority
+  const [step, setStep] = useState(1);
   const [answers, setAnswers] = useState<Record<number, number>>({});
-  const [priorityOrder, setPriorityOrder] = useState<TraitKey[]>([...TRAITS]);
-  const [draggedTrait, setDraggedTrait] = useState<TraitKey | null>(null);
+  const [nonNegotiableTrait, setNonNegotiableTrait] = useState<TraitKey>('openness');
+
+  const [city, setCity] = useState('');
+  const [relationshipGoal, setRelationshipGoal] = useState<'short-term' | 'long-term' | 'friends' | 'open to anything'>('open to anything');
+  const [wantsChildren, setWantsChildren] = useState<'yes' | 'no' | 'unsure'>('unsure');
+  const [hasChildren, setHasChildren] = useState<'yes' | 'no'>('no');
+  const [smoking, setSmoking] = useState<'yes' | 'no' | 'prefer not to say'>('prefer not to say');
+  const [drinking, setDrinking] = useState<'yes' | 'no' | 'prefer not to say'>('prefer not to say');
+  const [exerciseFrequency, setExerciseFrequency] = useState<'never' | 'rarely' | 'daily'>('rarely');
+  const [sleepHabits, setSleepHabits] = useState<'early bird' | 'night owl' | 'flexible'>('flexible');
+  const [eatingPreference, setEatingPreference] = useState<'omnivore' | 'vegetarian' | 'vegan'>('omnivore');
+  const [occupation, setOccupation] = useState('');
+  const [height, setHeight] = useState('');
 
   const setAnswer = (idx: number, val: number) => setAnswers((a) => ({ ...a, [idx]: val }));
+
+  const priorityOrder = useMemo(
+    () => [nonNegotiableTrait, ...TRAITS.filter((trait) => trait !== nonNegotiableTrait)],
+    [nonNegotiableTrait],
+  );
 
   const liveScores = useMemo(() => {
     const rawAnswers: Record<TraitKey, number[]> = {
@@ -56,7 +77,11 @@ export default function Questionnaire() {
       return Array.from({ length: end - start }, (_, i) => start + i).every((i) => answers[i] !== undefined);
     }
 
-    return priorityOrder.length === TRAITS.length;
+    if (step === 4) {
+      return city.trim().length > 0 && occupation.trim().length > 0 && height.trim().length > 0;
+    }
+
+    return Boolean(nonNegotiableTrait);
   };
 
   const finish = async () => {
@@ -90,27 +115,25 @@ export default function Questionnaire() {
       priorityOrder,
       minAge: 18,
       maxAge: 99,
+      city,
+      relationshipGoal,
+      wantsChildren,
+      hasChildren,
+      smoking,
+      drinking,
+      exerciseFrequency,
+      sleepHabits,
+      eatingPreference,
+      occupation,
+      height,
     });
 
     navigate('/photos');
   };
 
   const next = () => {
-    if (step < 4) setStep((s) => s + 1);
+    if (step < TOTAL_STEPS) setStep((s) => s + 1);
     else void finish();
-  };
-
-  const handleDrop = (targetTrait: TraitKey) => {
-    if (!draggedTrait || draggedTrait === targetTrait) return;
-
-    setPriorityOrder((prev) => {
-      const withoutDragged = prev.filter((trait) => trait !== draggedTrait);
-      const targetIndex = withoutDragged.indexOf(targetTrait);
-      withoutDragged.splice(targetIndex, 0, draggedTrait);
-      return withoutDragged;
-    });
-
-    setDraggedTrait(null);
   };
 
   return (
@@ -151,40 +174,119 @@ export default function Questionnaire() {
 
         {step === 4 && (
           <>
-            <h2 className="text-2xl font-heading font-bold mb-2">Partner Priority</h2>
+            <h2 className="text-2xl font-heading font-bold mb-4">Lifestyle & Preferences</h2>
+            <div className="space-y-4 flex-1">
+              <div>
+                <p className="text-sm font-medium mb-1">Current city / town</p>
+                <input className="w-full rounded-xl border bg-card p-3" value={city} onChange={(e) => setCity(e.target.value)} />
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-1">What are you looking for?</p>
+                <select className="w-full rounded-xl border bg-card p-3" value={relationshipGoal} onChange={(e) => setRelationshipGoal(e.target.value as typeof relationshipGoal)}>
+                  <option value="short-term">short-term</option>
+                  <option value="long-term">long-term</option>
+                  <option value="friends">friends</option>
+                  <option value="open to anything">open to anything</option>
+                </select>
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-1">Do you want children in the future?</p>
+                <select className="w-full rounded-xl border bg-card p-3" value={wantsChildren} onChange={(e) => setWantsChildren(e.target.value as typeof wantsChildren)}>
+                  <option value="yes">yes</option>
+                  <option value="no">no</option>
+                  <option value="unsure">unsure</option>
+                </select>
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-1">Do you have children?</p>
+                <select className="w-full rounded-xl border bg-card p-3" value={hasChildren} onChange={(e) => setHasChildren(e.target.value as typeof hasChildren)}>
+                  <option value="no">no</option>
+                  <option value="yes">yes</option>
+                </select>
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-1">Do you smoke?</p>
+                <select className="w-full rounded-xl border bg-card p-3" value={smoking} onChange={(e) => setSmoking(e.target.value as typeof smoking)}>
+                  <option value="yes">yes</option>
+                  <option value="no">no</option>
+                  <option value="prefer not to say">prefer not to say</option>
+                </select>
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-1">Do you drink?</p>
+                <select className="w-full rounded-xl border bg-card p-3" value={drinking} onChange={(e) => setDrinking(e.target.value as typeof drinking)}>
+                  <option value="yes">yes</option>
+                  <option value="no">no</option>
+                  <option value="prefer not to say">prefer not to say</option>
+                </select>
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-1">How often do you exercise?</p>
+                <select className="w-full rounded-xl border bg-card p-3" value={exerciseFrequency} onChange={(e) => setExerciseFrequency(e.target.value as typeof exerciseFrequency)}>
+                  <option value="never">never</option>
+                  <option value="rarely">rarely</option>
+                  <option value="daily">daily</option>
+                </select>
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-1">Sleep habits</p>
+                <select className="w-full rounded-xl border bg-card p-3" value={sleepHabits} onChange={(e) => setSleepHabits(e.target.value as typeof sleepHabits)}>
+                  <option value="early bird">early bird</option>
+                  <option value="night owl">night owl</option>
+                  <option value="flexible">flexible</option>
+                </select>
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-1">Eating preferences</p>
+                <select className="w-full rounded-xl border bg-card p-3" value={eatingPreference} onChange={(e) => setEatingPreference(e.target.value as typeof eatingPreference)}>
+                  <option value="omnivore">omnivore</option>
+                  <option value="vegetarian">vegetarian</option>
+                  <option value="vegan">vegan</option>
+                </select>
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-1">Occupation / job title</p>
+                <input className="w-full rounded-xl border bg-card p-3" value={occupation} onChange={(e) => setOccupation(e.target.value)} />
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-1">Height</p>
+                <input className="w-full rounded-xl border bg-card p-3" value={height} onChange={(e) => setHeight(e.target.value)} placeholder={'e.g. 5\'9" / 175 cm'} />
+              </div>
+            </div>
+          </>
+        )}
+
+        {step === 5 && (
+          <>
+            <h2 className="text-2xl font-heading font-bold mb-2">Non-negotiable partner quality</h2>
             <p className="text-xs text-muted-foreground mb-4">
-              Drag traits to set 1st to 5th priority. We automatically use threshold 80 for the top priority trait.
+              Pick one quality you can&apos;t compromise on.
             </p>
 
             <div className="space-y-3 flex-1">
-              {priorityOrder.map((trait, index) => (
-                <div
-                  key={trait}
-                  draggable
-                  onDragStart={() => setDraggedTrait(trait)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => handleDrop(trait)}
-                  className="rounded-xl border bg-card p-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold">
-                      {index + 1}. {titleCase(trait)}
+              {partnerPriorities.map((item) => {
+                const selected = nonNegotiableTrait === item.trait;
+                return (
+                  <button
+                    key={item.trait}
+                    type="button"
+                    onClick={() => setNonNegotiableTrait(item.trait)}
+                    className={`w-full rounded-xl border p-3 text-left ${selected ? 'gradient-coral text-primary-foreground border-transparent' : 'bg-card'}`}
+                  >
+                    <p className="text-base font-semibold">{item.emoji} {item.title}</p>
+                    <p className={`text-xs mt-1 ${selected ? 'text-primary-foreground/90' : 'text-muted-foreground'}`}>{item.subtitle}</p>
+                    <p className={`text-xs mt-2 ${selected ? 'text-primary-foreground/90' : 'text-muted-foreground'}`}>
+                      Your score: {liveScores[item.trait]}{selected ? ' • Used as your top preference' : ''}
                     </p>
-                    <span className="text-xs text-muted-foreground">Your score: {liveScores[trait]}</span>
-                  </div>
-                  {index === 0 && (
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Recommendation starts with {titleCase(trait)} ≥ 80.
-                    </p>
-                  )}
-                </div>
-              ))}
+                  </button>
+                );
+              })}
             </div>
           </>
         )}
 
         <Button onClick={next} disabled={!canNext()} className="w-full mt-6 gradient-coral">
-          {step < 4 ? 'Next' : 'Finish'}
+          {step < TOTAL_STEPS ? 'Next' : 'Finish'}
         </Button>
       </div>
     </div>

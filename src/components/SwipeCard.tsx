@@ -6,9 +6,10 @@ interface SwipeCardProps {
   user: MatchResult;
   onSwipeLeft: () => void;
   onSwipeRight: () => void;
+  onOpenProfile?: () => void;
 }
 
-export default function SwipeCard({ user, onSwipeLeft, onSwipeRight }: SwipeCardProps) {
+export default function SwipeCard({ user, onSwipeLeft, onSwipeRight, onOpenProfile }: SwipeCardProps) {
   const [photoIdx, setPhotoIdx] = useState(0);
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -64,6 +65,9 @@ export default function SwipeCard({ user, onSwipeLeft, onSwipeRight }: SwipeCard
     <div className="relative w-full max-w-sm mx-auto" style={{ aspectRatio: '3/4' }}>
       <div
         className="absolute inset-0 rounded-3xl overflow-hidden shadow-2xl bg-card cursor-grab active:cursor-grabbing select-none"
+        onClick={() => {
+          if (!isDragging && Math.abs(dragX) < 10) onOpenProfile?.();
+        }}
         style={{
           transform: `translateX(${dragX}px) rotate(${rotation}deg)`,
           opacity,
@@ -128,13 +132,13 @@ export default function SwipeCard({ user, onSwipeLeft, onSwipeRight }: SwipeCard
 
       <div className="absolute -bottom-16 left-0 right-0 flex justify-center gap-6">
         <button
-          onClick={onSwipeLeft}
+          onClick={(e) => { e.stopPropagation(); onSwipeLeft(); }}
           className="w-14 h-14 rounded-full bg-card border-2 border-border flex items-center justify-center shadow-lg hover:scale-110 transition-transform active:scale-95"
         >
           <X size={26} className="text-muted-foreground" />
         </button>
         <button
-          onClick={onSwipeRight}
+          onClick={(e) => { e.stopPropagation(); onSwipeRight(); }}
           className="w-16 h-16 rounded-full gradient-coral flex items-center justify-center shadow-lg hover:scale-110 transition-transform active:scale-95"
         >
           <Heart size={28} className="text-primary-foreground" fill="currentColor" />
