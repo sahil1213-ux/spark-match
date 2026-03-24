@@ -95,6 +95,22 @@ export interface AdvancedFilters extends Filters {
   occupation: string;
 }
 
+export interface AdvancedFilters extends Filters {
+  city: string;
+  distanceKm: number;
+  relationshipGoal: 'short-term' | 'long-term' | 'friends' | 'open to anything';
+  wantsChildren: 'yes' | 'no' | 'unsure';
+  hasChildren: 'yes' | 'no';
+  smoking: 'yes' | 'no' | 'prefer not to say';
+  drinking: 'yes' | 'no' | 'prefer not to say';
+  exerciseFrequency: 'never' | 'rarely' | 'daily';
+  sleepHabits: 'early bird' | 'night owl' | 'flexible';
+  eatingPreference: 'omnivore' | 'vegetarian' | 'vegan';
+  heightMin: number;
+  heightMax: number;
+  occupation: string;
+}
+
 // ── Auth ──
 
 async function ensureUserDoc(base: Partial<UserProfile> = {}) {
