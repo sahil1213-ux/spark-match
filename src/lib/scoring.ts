@@ -3,6 +3,7 @@ export type TraitKey = 'openness' | 'conscientiousness' | 'extraversion' | 'agre
 export type PersonalityScores = Record<TraitKey, number>;
 
 export type PreferenceLevels = Record<TraitKey, 'low' | 'medium' | 'high'>;
+export type PersonaLabel = 'Explorer' | 'Planner' | 'Social Spark' | 'Heart-led' | 'Calm Anchor' | 'Balanced';
 
 export const TRAITS: TraitKey[] = ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism'];
 
@@ -41,4 +42,78 @@ export function similarityScore(
     return sum + weights[trait] * Math.abs((desiredScores[trait] ?? 0) - (candidateScores[trait] ?? 0));
   }, 0);
   return Math.max(0, Math.round(100 - distance));
+}
+
+export function derivePersona(scores: PersonalityScores): PersonaLabel {
+  const ranked = [...TRAITS].sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0));
+  const dominant = ranked[0];
+  const dominantScore = scores[dominant] ?? 0;
+  const secondScore = scores[ranked[1]] ?? 0;
+
+  if (dominantScore - secondScore < 8) return 'Balanced';
+  if (dominant === 'openness') return 'Explorer';
+  if (dominant === 'conscientiousness') return 'Planner';
+  if (dominant === 'extraversion') return 'Social Spark';
+  if (dominant === 'agreeableness') return 'Heart-led';
+  if (dominant === 'neuroticism') return 'Calm Anchor';
+  return 'Balanced';
+}
+
+type Vector = [number, number, number, number, number];
+
+function toVector(scores: PersonalityScores): Vector {
+  return TRAITS.map((trait) => scores[trait] ?? 0) as Vector;
+}
+
+function euclideanDistance(a: Vector, b: Vector) {
+  return Math.sqrt(a.reduce((sum, val, idx) => sum + (val - b[idx]) ** 2, 0));
+}
+
+export function runKMeans(
+  samples: Record<string, PersonalityScores>,
+  requestedK = 3,
+  maxIterations = 12,
+) {
+  const ids = Object.keys(samples);
+  if (ids.length === 0) return { assignments: {} as Record<string, number>, centroids: [] as Vector[] };
+
+  const k = Math.max(1, Math.min(requestedK, ids.length));
+  let centroids = ids.slice(0, k).map((id) => toVector(samples[id]));
+  let assignments: Record<string, number> = {};
+
+  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    const nextAssignments: Record<string, number> = {};
+
+    ids.forEach((id) => {
+      const vector = toVector(samples[id]);
+      let bestIdx = 0;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      centroids.forEach((centroid, idx) => {
+        const distance = euclideanDistance(vector, centroid);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestIdx = idx;
+        }
+      });
+      nextAssignments[id] = bestIdx;
+    });
+
+    const nextCentroids = centroids.map((centroid, idx) => {
+      const members = ids.filter((id) => nextAssignments[id] === idx).map((id) => toVector(samples[id]));
+      if (!members.length) return centroid;
+      const mean = centroid.map((_, dim) => members.reduce((sum, v) => sum + v[dim], 0) / members.length) as Vector;
+      return mean;
+    });
+
+    const stable =
+      ids.every((id) => assignments[id] === nextAssignments[id]) &&
+      centroids.every((centroid, idx) => euclideanDistance(centroid, nextCentroids[idx]) < 0.001);
+
+    assignments = nextAssignments;
+    centroids = nextCentroids;
+
+    if (stable) break;
+  }
+
+  return { assignments, centroids };
 }

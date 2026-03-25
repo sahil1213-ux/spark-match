@@ -119,62 +119,6 @@ export default function Filters() {
 
           <OptionGroup title="Preferred Gender" options={['Male', 'Female', 'Any'] as const} value={filters.gender} onChange={(gender) => setFilters((f) => ({ ...f, gender }))} />
 
-          <OptionGroup
-            title="Relationship Intent"
-            options={['short-term', 'long-term', 'friends', 'open to anything'] as const}
-            value={filters.relationshipGoal}
-            onChange={(relationshipGoal) => setFilters((f) => ({ ...f, relationshipGoal }))}
-          />
-
-          <OptionGroup
-            title="Do you want children?"
-            options={['yes', 'no', 'unsure'] as const}
-            value={filters.wantsChildren}
-            onChange={(wantsChildren) => setFilters((f) => ({ ...f, wantsChildren }))}
-          />
-
-          <OptionGroup
-            title="Do you have children?"
-            options={['yes', 'no'] as const}
-            value={filters.hasChildren}
-            onChange={(hasChildren) => setFilters((f) => ({ ...f, hasChildren }))}
-          />
-
-          <OptionGroup
-            title="Smoke"
-            options={['yes', 'no', 'prefer not to say'] as const}
-            value={filters.smoking}
-            onChange={(smoking) => setFilters((f) => ({ ...f, smoking }))}
-          />
-
-          <OptionGroup
-            title="Drink"
-            options={['yes', 'no', 'prefer not to say'] as const}
-            value={filters.drinking}
-            onChange={(drinking) => setFilters((f) => ({ ...f, drinking }))}
-          />
-
-          <OptionGroup
-            title="Exercise"
-            options={['never', 'rarely', 'daily'] as const}
-            value={filters.exerciseFrequency}
-            onChange={(exerciseFrequency) => setFilters((f) => ({ ...f, exerciseFrequency }))}
-          />
-
-          <OptionGroup
-            title="Sleep habits"
-            options={['early bird', 'night owl', 'flexible'] as const}
-            value={filters.sleepHabits}
-            onChange={(sleepHabits) => setFilters((f) => ({ ...f, sleepHabits }))}
-          />
-
-          <OptionGroup
-            title="Eating preference"
-            options={['omnivore', 'vegetarian', 'vegan'] as const}
-            value={filters.eatingPreference}
-            onChange={(eatingPreference) => setFilters((f) => ({ ...f, eatingPreference }))}
-          />
-
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-muted-foreground">Distance range</span>

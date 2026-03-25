@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getCurrentUserId, getCurrentUserProfile, saveQuestionnaire } from '@/lib/store';
 import { Button } from '@/components/ui/button';
-import { computePersonalityScores, TRAITS, TraitKey } from '@/lib/scoring';
+import { computePersonalityScores, derivePersona, TRAITS, TraitKey } from '@/lib/scoring';
 
 const likertQuestions: { trait: TraitKey; text: string }[] = [
   { trait: 'openness', text: 'I enjoy trying new activities.' },
@@ -69,6 +69,8 @@ export default function Questionnaire() {
 
     return computePersonalityScores(rawAnswers);
   }, [answers]);
+
+  const personaLabel = useMemo(() => derivePersona(liveScores), [liveScores]);
 
   const canNext = () => {
     if (step >= 1 && step <= 3) {
@@ -262,6 +264,13 @@ export default function Questionnaire() {
             <p className="text-xs text-muted-foreground mb-4">
               Pick one quality you can&apos;t compromise on.
             </p>
+            <div className="rounded-xl border bg-card p-3 mb-4">
+              <p className="text-xs text-muted-foreground">Your persona analysis</p>
+              <p className="text-sm font-semibold mt-1">{personaLabel}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                O {liveScores.openness} • C {liveScores.conscientiousness} • E {liveScores.extraversion} • A {liveScores.agreeableness} • N {liveScores.neuroticism}
+              </p>
+            </div>
 
             <div className="space-y-3 flex-1">
               {partnerPriorities.map((item) => {

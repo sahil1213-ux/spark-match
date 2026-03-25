@@ -26,7 +26,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
-import { PersonalityScores, TraitKey } from '@/lib/scoring';
+import { derivePersona, PersonalityScores, runKMeans, TraitKey } from '@/lib/scoring';
 import { geohashForLocation } from 'geofire-common';
 
 const TRAITS: TraitKey[] = ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism'];
@@ -92,22 +92,6 @@ export interface AdvancedFilters extends Filters {
   eatingPreference: 'omnivore' | 'vegetarian' | 'vegan' | null;
   heightMin: number | null;
   heightMax: number | null;
-  occupation: string;
-}
-
-export interface AdvancedFilters extends Filters {
-  city: string;
-  distanceKm: number;
-  relationshipGoal: 'short-term' | 'long-term' | 'friends' | 'open to anything';
-  wantsChildren: 'yes' | 'no' | 'unsure';
-  hasChildren: 'yes' | 'no';
-  smoking: 'yes' | 'no' | 'prefer not to say';
-  drinking: 'yes' | 'no' | 'prefer not to say';
-  exerciseFrequency: 'never' | 'rarely' | 'daily';
-  sleepHabits: 'early bird' | 'night owl' | 'flexible';
-  eatingPreference: 'omnivore' | 'vegetarian' | 'vegan';
-  heightMin: number;
-  heightMax: number;
   occupation: string;
 }
 
@@ -488,6 +472,7 @@ export interface DiscoverProfile {
   occupation?: string;
   height?: string;
   matchingScores?: Partial<Record<TraitKey, number>>;
+  persona?: string;
 }
 
 function toRad(value: number) {
@@ -614,6 +599,46 @@ function sortDiscoverProfilesByPriority(profiles: DiscoverProfile[], priorityOrd
   });
 }
 
+function getCompleteTraitScores(raw?: Partial<Record<TraitKey, number>>) {
+  if (!raw) return null;
+  const completed = TRAITS.reduce((acc, trait) => {
+    const score = Number(raw[trait]);
+    acc[trait] = Number.isFinite(score) ? score : 0;
+    return acc;
+  }, {} as Record<TraitKey, number>);
+  return completed;
+}
+
+function sortDiscoverProfilesWithKMeans(
+  profiles: DiscoverProfile[],
+  meScores: Record<TraitKey, number> | undefined,
+  priorityOrder: TraitKey[],
+) {
+  if (!meScores || profiles.length === 0) return sortDiscoverProfilesByPriority(profiles, priorityOrder);
+
+  const dataset: Record<string, Record<TraitKey, number>> = { me: meScores };
+  profiles.forEach((profile) => {
+    const scores = getCompleteTraitScores(profile.matchingScores);
+    if (scores) dataset[profile.id] = scores;
+  });
+
+  const { assignments } = runKMeans(dataset, 3);
+  const myCluster = assignments['me'];
+
+  return [...profiles].sort((a, b) => {
+    const aInMyCluster = assignments[a.id] === myCluster ? 1 : 0;
+    const bInMyCluster = assignments[b.id] === myCluster ? 1 : 0;
+    if (aInMyCluster !== bInMyCluster) return bInMyCluster - aInMyCluster;
+
+    for (const trait of priorityOrder) {
+      const aScore = Number(a.matchingScores?.[trait] ?? -1);
+      const bScore = Number(b.matchingScores?.[trait] ?? -1);
+      if (aScore !== bScore) return bScore - aScore;
+    }
+    return 0;
+  });
+}
+
 function filterByAdvancedPreferences(profile: DiscoverProfile, me: UserProfile, filters: AdvancedFilters) {
   if (!filterByCorePreferences(profile, me, filters)) return false;
 
@@ -643,6 +668,7 @@ async function fetchProfilesFromBackend(uid: string): Promise<DiscoverProfile[]>
 
   const filters = await getAdvancedFilters();
   const priorityOrder = await getUserPriorityOrder();
+  const meScores = getCompleteTraitScores(me.matchingScores);
   const snap = await getDocs(query(collection(db, 'users')));
 
   const allProfiles = snap.docs
@@ -651,6 +677,7 @@ async function fetchProfilesFromBackend(uid: string): Promise<DiscoverProfile[]>
       const u = d.data() as Record<string, unknown>;
       const loc = u.location as GeoPoint | undefined;
       const location = loc ? { latitude: loc.latitude, longitude: loc.longitude } : undefined;
+      const traitScores = getCompleteTraitScores((u.matchingScores as Partial<Record<TraitKey, number>> | undefined) ?? undefined);
 
       return {
         id: d.id,
@@ -672,12 +699,13 @@ async function fetchProfilesFromBackend(uid: string): Promise<DiscoverProfile[]>
         occupation: String(u.occupation ?? ''),
         height: String(u.height ?? ''),
         matchingScores: (u.matchingScores as Partial<Record<TraitKey, number>> | undefined) ?? undefined,
+        persona: traitScores ? derivePersona(traitScores as PersonalityScores) : 'Balanced',
       } as DiscoverProfile;
     })
     .filter((profile) => profile.age >= 18);
 
   const filteredProfiles = allProfiles.filter((profile) => filterByAdvancedPreferences(profile, me, filters));
-  const profiles = sortDiscoverProfilesByPriority(filteredProfiles, priorityOrder);
+  const profiles = sortDiscoverProfilesWithKMeans(filteredProfiles, meScores ?? undefined, priorityOrder);
 
   setStoredDiscoverProfiles(uid, profiles);
   localStorage.setItem(discoverFetchAtKey(uid), String(Date.now()));
