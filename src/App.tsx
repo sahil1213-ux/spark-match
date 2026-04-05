@@ -15,6 +15,7 @@ import EditProfile from "./pages/EditProfile";
 import ChatList from "./pages/ChatList";
 import Chat from "./pages/Chat";
 import Filters from "./pages/Filters";
+import Install from "./pages/Install";
 import NotFound from "./pages/NotFound";
 import { AuthProvider } from "./context/AuthContext";
 import { ProtectedRoute, PublicOnlyRoute } from "./components/RouteGuards";
@@ -65,6 +66,7 @@ const App = () => {
             <Route path="/chats" element={<ProtectedRoute><ChatList /></ProtectedRoute>} />
             <Route path="/chat/:userId" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
             <Route path="/filters" element={<ProtectedRoute><Filters /></ProtectedRoute>} />
+            <Route path="/install" element={<Install />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
