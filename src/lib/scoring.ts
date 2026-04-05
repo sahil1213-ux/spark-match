@@ -3,8 +3,17 @@ export type TraitKey = 'openness' | 'conscientiousness' | 'extraversion' | 'agre
 export type PersonalityScores = Record<TraitKey, number>;
 
 export type PreferenceLevels = Record<TraitKey, 'low' | 'medium' | 'high'>;
+export type PersonaLabel = 'Explorer' | 'Planner' | 'Social Spark' | 'Heart-led' | 'Calm Anchor' | 'Balanced';
 
 export const TRAITS: TraitKey[] = ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism'];
+
+const TRAIT_MATCH_WEIGHTS: Record<TraitKey, number> = {
+  openness: 0.9,
+  conscientiousness: 1.1,
+  extraversion: 1.0,
+  agreeableness: 1.2,
+  neuroticism: 1.3,
+};
 
 export function normalizeTraitScore(rawScore: number) {
   const score = ((rawScore - 3) / 12) * 100;
@@ -41,4 +50,122 @@ export function similarityScore(
     return sum + weights[trait] * Math.abs((desiredScores[trait] ?? 0) - (candidateScores[trait] ?? 0));
   }, 0);
   return Math.max(0, Math.round(100 - distance));
+}
+
+function clamp(value: number, min = 0, max = 100) {
+  return Math.max(min, Math.min(max, value));
+}
+
+export function cosineCompatibility(me: PersonalityScores, candidate: PersonalityScores) {
+  const weightedMe = TRAITS.map((trait) => (me[trait] ?? 0) * TRAIT_MATCH_WEIGHTS[trait]);
+  const weightedCandidate = TRAITS.map((trait) => (candidate[trait] ?? 0) * TRAIT_MATCH_WEIGHTS[trait]);
+
+  const dot = weightedMe.reduce((sum, value, idx) => sum + value * weightedCandidate[idx], 0);
+  const meMagnitude = Math.sqrt(weightedMe.reduce((sum, value) => sum + value * value, 0));
+  const candidateMagnitude = Math.sqrt(weightedCandidate.reduce((sum, value) => sum + value * value, 0));
+
+  if (meMagnitude === 0 || candidateMagnitude === 0) return 0;
+  return clamp((dot / (meMagnitude * candidateMagnitude)) * 100);
+}
+
+export function traitAdjustedCompatibility(me: PersonalityScores, candidate: PersonalityScores) {
+  let score = cosineCompatibility(me, candidate);
+
+  const opennessDiff = Math.abs((me.openness ?? 0) - (candidate.openness ?? 0));
+  if (opennessDiff >= 15 && opennessDiff <= 35) score += 3;
+  if (opennessDiff > 45) score -= 10;
+
+  const conscientiousnessDiff = Math.abs((me.conscientiousness ?? 0) - (candidate.conscientiousness ?? 0));
+  if (conscientiousnessDiff <= 15) score += 6;
+  if (conscientiousnessDiff > 35) score -= 10;
+
+  const extraversionDiff = Math.abs((me.extraversion ?? 0) - (candidate.extraversion ?? 0));
+  if (extraversionDiff <= 20) score += 4;
+  if (extraversionDiff > 45) score -= 8;
+
+  const agreeablenessDiff = Math.abs((me.agreeableness ?? 0) - (candidate.agreeableness ?? 0));
+  if (agreeablenessDiff <= 15) score += 7;
+  if (agreeablenessDiff > 30) score -= 12;
+
+  const meN = me.neuroticism ?? 0;
+  const candidateN = candidate.neuroticism ?? 0;
+  if (meN >= 70 && candidateN >= 70) score -= 14;
+  else if (meN <= 35 && candidateN <= 35) score += 9;
+  else if ((meN >= 70 && candidateN <= 35) || (meN <= 35 && candidateN >= 70)) score -= 3;
+
+  return Math.round(clamp(score));
+}
+
+export function derivePersona(scores: PersonalityScores): PersonaLabel {
+  const ranked = [...TRAITS].sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0));
+  const dominant = ranked[0];
+  const dominantScore = scores[dominant] ?? 0;
+  const secondScore = scores[ranked[1]] ?? 0;
+
+  if (dominantScore - secondScore < 8) return 'Balanced';
+  if (dominant === 'openness') return 'Explorer';
+  if (dominant === 'conscientiousness') return 'Planner';
+  if (dominant === 'extraversion') return 'Social Spark';
+  if (dominant === 'agreeableness') return 'Heart-led';
+  if (dominant === 'neuroticism') return 'Calm Anchor';
+  return 'Balanced';
+}
+
+type Vector = [number, number, number, number, number];
+
+function toVector(scores: PersonalityScores): Vector {
+  return TRAITS.map((trait) => scores[trait] ?? 0) as Vector;
+}
+
+function euclideanDistance(a: Vector, b: Vector) {
+  return Math.sqrt(a.reduce((sum, val, idx) => sum + (val - b[idx]) ** 2, 0));
+}
+
+export function runKMeans(
+  samples: Record<string, PersonalityScores>,
+  requestedK = 3,
+  maxIterations = 12,
+) {
+  const ids = Object.keys(samples);
+  if (ids.length === 0) return { assignments: {} as Record<string, number>, centroids: [] as Vector[] };
+
+  const k = Math.max(1, Math.min(requestedK, ids.length));
+  let centroids = ids.slice(0, k).map((id) => toVector(samples[id]));
+  let assignments: Record<string, number> = {};
+
+  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    const nextAssignments: Record<string, number> = {};
+
+    ids.forEach((id) => {
+      const vector = toVector(samples[id]);
+      let bestIdx = 0;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      centroids.forEach((centroid, idx) => {
+        const distance = euclideanDistance(vector, centroid);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestIdx = idx;
+        }
+      });
+      nextAssignments[id] = bestIdx;
+    });
+
+    const nextCentroids = centroids.map((centroid, idx) => {
+      const members = ids.filter((id) => nextAssignments[id] === idx).map((id) => toVector(samples[id]));
+      if (!members.length) return centroid;
+      const mean = centroid.map((_, dim) => members.reduce((sum, v) => sum + v[dim], 0) / members.length) as Vector;
+      return mean;
+    });
+
+    const stable =
+      ids.every((id) => assignments[id] === nextAssignments[id]) &&
+      centroids.every((centroid, idx) => euclideanDistance(centroid, nextCentroids[idx]) < 0.001);
+
+    assignments = nextAssignments;
+    centroids = nextCentroids;
+
+    if (stable) break;
+  }
+
+  return { assignments, centroids };
 }
