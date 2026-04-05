@@ -1,133 +1,142 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getCurrentUserId, getCurrentUserProfile, saveQuestionnaire } from '@/lib/store';
+import { getCurrentUserId, getCurrentUserProfile, saveQuestionnaire, UserProfile } from '@/lib/store';
 import { Button } from '@/components/ui/button';
-import { computePersonalityScores, derivePersona, TRAITS, TraitKey } from '@/lib/scoring';
+import { TraitKey } from '@/lib/scoring';
 
-const likertQuestions: { trait: TraitKey; text: string }[] = [
-  { trait: 'openness', text: 'I enjoy trying new activities.' },
-  { trait: 'openness', text: 'I seek creative experiences.' },
-  { trait: 'openness', text: 'I prefer variety over routine.' },
-  { trait: 'conscientiousness', text: 'I plan ahead.' },
-  { trait: 'conscientiousness', text: 'I finish what I start.' },
-  { trait: 'conscientiousness', text: 'I stay organized.' },
-  { trait: 'extraversion', text: 'I feel energized around people.' },
-  { trait: 'extraversion', text: 'I enjoy social events.' },
-  { trait: 'extraversion', text: 'I like meeting new people.' },
-  { trait: 'agreeableness', text: "I care about others' feelings." },
-  { trait: 'agreeableness', text: 'I enjoy helping people.' },
-  { trait: 'agreeableness', text: 'I try to avoid conflicts.' },
-  { trait: 'neuroticism', text: 'I worry often.' },
-  { trait: 'neuroticism', text: 'I feel stressed easily.' },
-  { trait: 'neuroticism', text: 'I get anxious in new situations.' },
-];
+type WeightedQuestion = {
+  trait: TraitKey;
+  text: string;
+  weight: number;
+  reverse?: boolean;
+};
 
-const partnerPriorities: Array<{ trait: TraitKey; emoji: string; title: string; subtitle: string }> = [
-  { trait: 'openness', emoji: '🌈', title: 'Loves trying new things', subtitle: 'Creative, curious, and open-minded' },
-  { trait: 'conscientiousness', emoji: '📋', title: 'Has their life sorted', subtitle: 'Responsible, disciplined, and dependable' },
-  { trait: 'extraversion', emoji: '🎉', title: 'Fun & social', subtitle: 'Outgoing, talkative, and full of energy' },
-  { trait: 'agreeableness', emoji: '🤝', title: 'Kind-hearted', subtitle: 'Supportive, caring, and emotionally mature' },
-  { trait: 'neuroticism', emoji: '🧘', title: 'Emotionally steady', subtitle: 'Calm, stable, and handles stress well' },
+const questions: WeightedQuestion[] = [
+  { trait: 'openness', text: 'I would enjoy traveling to places that are very different from my usual environment.', weight: 0.8 },
+  { trait: 'openness', text: 'I like trying new things, even if I’m not sure I’ll enjoy them.', weight: 0.9 },
+  { trait: 'openness', text: 'I enjoy learning about different cultures, lifestyles, or ways of thinking.', weight: 0.8 },
+  { trait: 'openness', text: 'I enjoy creative activities like music, writing, photography, or art.', weight: 0.6 },
+
+  { trait: 'conscientiousness', text: 'I usually plan things in advance instead of deciding at the last minute.', weight: 0.9 },
+  { trait: 'conscientiousness', text: 'If I commit to something, I make sure I follow through.', weight: 1.0 },
+  { trait: 'conscientiousness', text: 'I sometimes start things but don’t finish them.', weight: 0.8, reverse: true },
+  { trait: 'conscientiousness', text: 'I like keeping my space clean and organized.', weight: 0.6 },
+
+  { trait: 'extraversion', text: 'Spending time with people usually gives me energy.', weight: 1.0 },
+  { trait: 'extraversion', text: 'I enjoy being the center of attention in a group.', weight: 0.7 },
+  { trait: 'extraversion', text: 'I often prefer staying in by myself over going out or socializing.', weight: 0.8, reverse: true },
+  { trait: 'extraversion', text: 'I find it easy to start conversations with new people.', weight: 0.9 },
+
+  { trait: 'agreeableness', text: 'I try to understand how others feel before reacting.', weight: 1.0 },
+  { trait: 'agreeableness', text: 'I usually try to avoid unnecessary arguments.', weight: 0.7 },
+  { trait: 'agreeableness', text: 'I sometimes say things very directly, even if they might hurt someone.', weight: 0.6, reverse: true },
+  { trait: 'agreeableness', text: 'I like helping people, even when I don’t get anything in return.', weight: 0.8 },
+
+  { trait: 'neuroticism', text: 'I often feel anxious or worried, even about small things.', weight: 1.0 },
+  { trait: 'neuroticism', text: 'I tend to feel stressed when things don’t go as planned.', weight: 0.9 },
+  { trait: 'neuroticism', text: 'I’m usually able to stay calm during stressful situations.', weight: 0.8, reverse: true },
+  { trait: 'neuroticism', text: 'My mood can change quickly depending on what’s happening.', weight: 0.7 },
 ];
 
 const LIKERT = [1, 2, 3, 4, 5];
+const PERSONALITY_PAGES = 4;
 const TOTAL_STEPS = 5;
+
+function computeWeightedScores(answers: Record<number, number>) {
+  const traits: Record<TraitKey, { weighted: number; totalWeight: number }> = {
+    openness: { weighted: 0, totalWeight: 0 },
+    conscientiousness: { weighted: 0, totalWeight: 0 },
+    extraversion: { weighted: 0, totalWeight: 0 },
+    agreeableness: { weighted: 0, totalWeight: 0 },
+    neuroticism: { weighted: 0, totalWeight: 0 },
+  };
+
+  questions.forEach((q, idx) => {
+    const raw = answers[idx] ?? 3;
+    const scaled = q.reverse ? 6 - raw : raw;
+    traits[q.trait].weighted += scaled * q.weight;
+    traits[q.trait].totalWeight += q.weight;
+  });
+
+  const normalized = {} as Record<TraitKey, number>;
+  (Object.keys(traits) as TraitKey[]).forEach((trait) => {
+    const { weighted, totalWeight } = traits[trait];
+    const mean = totalWeight ? weighted / totalWeight : 3;
+    normalized[trait] = Math.max(0, Math.min(100, Math.round(((mean - 1) / 4) * 100)));
+  });
+
+  return normalized;
+}
+
+function relationGoalFromLookingFor(lookingFor: UserProfile['lookingFor']) {
+  if (lookingFor === 'Serious relationship') return 'long-term';
+  if (lookingFor === 'Marriage') return 'long-term';
+  if (lookingFor === 'Casual dating') return 'short-term';
+  return 'open to anything';
+}
 
 export default function Questionnaire() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [answers, setAnswers] = useState<Record<number, number>>({});
-  const [nonNegotiableTrait, setNonNegotiableTrait] = useState<TraitKey>('openness');
-
-  const [city, setCity] = useState('');
-  const [relationshipGoal, setRelationshipGoal] = useState<'short-term' | 'long-term' | 'friends' | 'open to anything'>('open to anything');
-  const [wantsChildren, setWantsChildren] = useState<'yes' | 'no' | 'unsure'>('unsure');
-  const [hasChildren, setHasChildren] = useState<'yes' | 'no'>('no');
-  const [smoking, setSmoking] = useState<'yes' | 'no' | 'prefer not to say'>('prefer not to say');
-  const [drinking, setDrinking] = useState<'yes' | 'no' | 'prefer not to say'>('prefer not to say');
-  const [exerciseFrequency, setExerciseFrequency] = useState<'never' | 'rarely' | 'daily'>('rarely');
-  const [sleepHabits, setSleepHabits] = useState<'early bird' | 'night owl' | 'flexible'>('flexible');
-  const [eatingPreference, setEatingPreference] = useState<'omnivore' | 'vegetarian' | 'vegan'>('omnivore');
-  const [occupation, setOccupation] = useState('');
+  const [bio, setBio] = useState('');
   const [height, setHeight] = useState('');
+  const [relationshipStatus, setRelationshipStatus] = useState<'Single' | 'Divorced' | 'Prefer not to say'>('Single');
+  const [lookingFor, setLookingFor] = useState<'Serious relationship' | 'Marriage' | 'Casual dating' | 'Not sure'>('Not sure');
 
-  const setAnswer = (idx: number, val: number) => setAnswers((a) => ({ ...a, [idx]: val }));
+  const setAnswer = (idx: number, val: number) => setAnswers((prev) => ({ ...prev, [idx]: val }));
 
-  const priorityOrder = useMemo(
-    () => [nonNegotiableTrait, ...TRAITS.filter((trait) => trait !== nonNegotiableTrait)],
-    [nonNegotiableTrait],
-  );
+  const liveScores = useMemo(() => computeWeightedScores(answers), [answers]);
 
-  const liveScores = useMemo(() => {
-    const rawAnswers: Record<TraitKey, number[]> = {
-      openness: [], conscientiousness: [], extraversion: [], agreeableness: [], neuroticism: [],
-    };
-
-    likertQuestions.forEach((q, i) => {
-      rawAnswers[q.trait].push(answers[i] ?? 3);
-    });
-
-    return computePersonalityScores(rawAnswers);
-  }, [answers]);
+  const priorityOrder = useMemo(() => {
+    return (Object.entries(liveScores) as Array<[TraitKey, number]>)
+      .sort((a, b) => b[1] - a[1])
+      .map(([trait]) => trait);
+  }, [liveScores]);
 
   const personaLabel = useMemo(() => derivePersona(liveScores), [liveScores]);
 
   const canNext = () => {
-    if (step >= 1 && step <= 3) {
+    if (step <= PERSONALITY_PAGES) {
       const start = (step - 1) * 5;
-      const end = Math.min(start + 5, likertQuestions.length);
-      return Array.from({ length: end - start }, (_, i) => start + i).every((i) => answers[i] !== undefined);
+      const end = Math.min(start + 5, questions.length);
+      return Array.from({ length: end - start }, (_, i) => start + i).every((index) => answers[index] !== undefined);
     }
 
-    if (step === 4) {
-      return city.trim().length > 0 && occupation.trim().length > 0 && height.trim().length > 0;
-    }
-
-    return Boolean(nonNegotiableTrait);
+    const words = bio.trim().split(/\s+/).filter(Boolean);
+    return words.length <= 200 && bio.trim().length > 0;
   };
 
   const finish = async () => {
-    const userId = getCurrentUserId();
-    if (!userId) return;
+    const uid = getCurrentUserId();
+    if (!uid) return;
 
     const profile = await getCurrentUserProfile();
     if (!profile) return;
 
-    const rawAnswers: Record<TraitKey, number[]> = {
-      openness: [],
-      conscientiousness: [],
-      extraversion: [],
-      agreeableness: [],
-      neuroticism: [],
-    };
-
-    likertQuestions.forEach((q, i) => {
-      rawAnswers[q.trait].push(answers[i] ?? 3);
-    });
-
-    const scores = computePersonalityScores(rawAnswers);
-
-    await saveQuestionnaire(userId, {
-      bio: profile.bio,
+    await saveQuestionnaire(uid, {
+      bio,
       age: profile.age,
       gender: profile.gender,
       lat: profile.location?.latitude ?? 0,
       lon: profile.location?.longitude ?? 0,
-      scores,
+      scores: liveScores,
       priorityOrder,
       minAge: 18,
       maxAge: 99,
-      city,
-      relationshipGoal,
-      wantsChildren,
-      hasChildren,
-      smoking,
-      drinking,
-      exerciseFrequency,
-      sleepHabits,
-      eatingPreference,
-      occupation,
+      city: profile.city ?? '',
+      relationshipGoal: relationGoalFromLookingFor(lookingFor),
+      wantsChildren: 'unsure',
+      hasChildren: 'no',
+      smoking: 'prefer not to say',
+      drinking: 'prefer not to say',
+      exerciseFrequency: 'rarely',
+      sleepHabits: 'flexible',
+      eatingPreference: 'omnivore',
+      occupation: profile.occupation ?? '',
       height,
+      relationshipStatus,
+      lookingFor,
     });
 
     navigate('/photos');
@@ -141,28 +150,29 @@ export default function Questionnaire() {
   return (
     <div className="min-h-screen bg-background safe-top flex flex-col">
       <div className="max-w-sm mx-auto px-6 py-8 flex-1 flex flex-col">
-        {step >= 1 && step <= 3 && (() => {
+        {step <= PERSONALITY_PAGES && (() => {
           const start = (step - 1) * 5;
-          const end = Math.min(start + 5, likertQuestions.length);
-          const page = likertQuestions.slice(start, end);
+          const end = Math.min(start + 5, questions.length);
+          const page = questions.slice(start, end);
           return (
             <>
-              <h2 className="text-2xl font-heading font-bold mb-6">Personality ({step}/3)</h2>
+              <h2 className="text-2xl font-heading font-bold mb-1">Step 2: Personality Check ({step}/4)</h2>
+              <p className="text-xs text-muted-foreground mb-6">Rate each statement from 1 (Not me) to 5 (Very me)</p>
               <div className="space-y-5 flex-1">
-                {page.map((q, i) => {
+                {page.map((question, i) => {
                   const idx = start + i;
                   return (
                     <div key={idx}>
-                      <p className="text-sm font-medium mb-2">{q.text}</p>
-                      <div className="flex gap-2">
-                        {LIKERT.map((v) => (
+                      <p className="text-sm font-medium mb-2">{question.text}</p>
+                      <div className="flex gap-2 flex-wrap">
+                        {LIKERT.map((value) => (
                           <button
-                            key={v}
+                            key={value}
                             type="button"
-                            onClick={() => setAnswer(idx, v)}
-                            className={`w-10 h-10 rounded-full text-sm font-bold ${answers[idx] === v ? 'gradient-coral text-primary-foreground' : 'bg-secondary'}`}
+                            onClick={() => setAnswer(idx, value)}
+                            className={`w-10 h-10 rounded-full text-sm font-bold ${answers[idx] === value ? 'gradient-coral text-primary-foreground' : 'bg-secondary'}`}
                           >
-                            {v}
+                            {value}
                           </button>
                         ))}
                       </div>
@@ -174,128 +184,54 @@ export default function Questionnaire() {
           );
         })()}
 
-        {step === 4 && (
-          <>
-            <h2 className="text-2xl font-heading font-bold mb-4">Lifestyle & Preferences</h2>
-            <div className="space-y-4 flex-1">
-              <div>
-                <p className="text-sm font-medium mb-1">Current city / town</p>
-                <input className="w-full rounded-xl border bg-card p-3" value={city} onChange={(e) => setCity(e.target.value)} />
-              </div>
-              <div>
-                <p className="text-sm font-medium mb-1">What are you looking for?</p>
-                <select className="w-full rounded-xl border bg-card p-3" value={relationshipGoal} onChange={(e) => setRelationshipGoal(e.target.value as typeof relationshipGoal)}>
-                  <option value="short-term">short-term</option>
-                  <option value="long-term">long-term</option>
-                  <option value="friends">friends</option>
-                  <option value="open to anything">open to anything</option>
-                </select>
-              </div>
-              <div>
-                <p className="text-sm font-medium mb-1">Do you want children in the future?</p>
-                <select className="w-full rounded-xl border bg-card p-3" value={wantsChildren} onChange={(e) => setWantsChildren(e.target.value as typeof wantsChildren)}>
-                  <option value="yes">yes</option>
-                  <option value="no">no</option>
-                  <option value="unsure">unsure</option>
-                </select>
-              </div>
-              <div>
-                <p className="text-sm font-medium mb-1">Do you have children?</p>
-                <select className="w-full rounded-xl border bg-card p-3" value={hasChildren} onChange={(e) => setHasChildren(e.target.value as typeof hasChildren)}>
-                  <option value="no">no</option>
-                  <option value="yes">yes</option>
-                </select>
-              </div>
-              <div>
-                <p className="text-sm font-medium mb-1">Do you smoke?</p>
-                <select className="w-full rounded-xl border bg-card p-3" value={smoking} onChange={(e) => setSmoking(e.target.value as typeof smoking)}>
-                  <option value="yes">yes</option>
-                  <option value="no">no</option>
-                  <option value="prefer not to say">prefer not to say</option>
-                </select>
-              </div>
-              <div>
-                <p className="text-sm font-medium mb-1">Do you drink?</p>
-                <select className="w-full rounded-xl border bg-card p-3" value={drinking} onChange={(e) => setDrinking(e.target.value as typeof drinking)}>
-                  <option value="yes">yes</option>
-                  <option value="no">no</option>
-                  <option value="prefer not to say">prefer not to say</option>
-                </select>
-              </div>
-              <div>
-                <p className="text-sm font-medium mb-1">How often do you exercise?</p>
-                <select className="w-full rounded-xl border bg-card p-3" value={exerciseFrequency} onChange={(e) => setExerciseFrequency(e.target.value as typeof exerciseFrequency)}>
-                  <option value="never">never</option>
-                  <option value="rarely">rarely</option>
-                  <option value="daily">daily</option>
-                </select>
-              </div>
-              <div>
-                <p className="text-sm font-medium mb-1">Sleep habits</p>
-                <select className="w-full rounded-xl border bg-card p-3" value={sleepHabits} onChange={(e) => setSleepHabits(e.target.value as typeof sleepHabits)}>
-                  <option value="early bird">early bird</option>
-                  <option value="night owl">night owl</option>
-                  <option value="flexible">flexible</option>
-                </select>
-              </div>
-              <div>
-                <p className="text-sm font-medium mb-1">Eating preferences</p>
-                <select className="w-full rounded-xl border bg-card p-3" value={eatingPreference} onChange={(e) => setEatingPreference(e.target.value as typeof eatingPreference)}>
-                  <option value="omnivore">omnivore</option>
-                  <option value="vegetarian">vegetarian</option>
-                  <option value="vegan">vegan</option>
-                </select>
-              </div>
-              <div>
-                <p className="text-sm font-medium mb-1">Occupation / job title</p>
-                <input className="w-full rounded-xl border bg-card p-3" value={occupation} onChange={(e) => setOccupation(e.target.value)} />
-              </div>
-              <div>
-                <p className="text-sm font-medium mb-1">Height</p>
-                <input className="w-full rounded-xl border bg-card p-3" value={height} onChange={(e) => setHeight(e.target.value)} placeholder={'e.g. 5\'9" / 175 cm'} />
-              </div>
-            </div>
-          </>
-        )}
-
         {step === 5 && (
           <>
-            <h2 className="text-2xl font-heading font-bold mb-2">Non-negotiable partner quality</h2>
-            <p className="text-xs text-muted-foreground mb-4">
-              Pick one quality you can&apos;t compromise on.
-            </p>
-            <div className="rounded-xl border bg-card p-3 mb-4">
-              <p className="text-xs text-muted-foreground">Your persona analysis</p>
-              <p className="text-sm font-semibold mt-1">{personaLabel}</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                O {liveScores.openness} • C {liveScores.conscientiousness} • E {liveScores.extraversion} • A {liveScores.agreeableness} • N {liveScores.neuroticism}
-              </p>
-            </div>
+            <h2 className="text-2xl font-heading font-bold mb-1">Step 3: Final Essentials</h2>
+            <p className="text-xs text-muted-foreground mb-6">Photos are next (minimum 2, maximum 5)</p>
+            <div className="space-y-4 flex-1">
+              <div>
+                <p className="text-sm font-medium mb-1">Short bio (max 200 words)</p>
+                <textarea
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  className="w-full rounded-xl border bg-card p-3 min-h-28"
+                  placeholder="Tell us something interesting about you..."
+                />
+                <p className="text-xs text-muted-foreground mt-1">{bio.trim().split(/\s+/).filter(Boolean).length}/200 words</p>
+              </div>
 
-            <div className="space-y-3 flex-1">
-              {partnerPriorities.map((item) => {
-                const selected = nonNegotiableTrait === item.trait;
-                return (
-                  <button
-                    key={item.trait}
-                    type="button"
-                    onClick={() => setNonNegotiableTrait(item.trait)}
-                    className={`w-full rounded-xl border p-3 text-left ${selected ? 'gradient-coral text-primary-foreground border-transparent' : 'bg-card'}`}
-                  >
-                    <p className="text-base font-semibold">{item.emoji} {item.title}</p>
-                    <p className={`text-xs mt-1 ${selected ? 'text-primary-foreground/90' : 'text-muted-foreground'}`}>{item.subtitle}</p>
-                    <p className={`text-xs mt-2 ${selected ? 'text-primary-foreground/90' : 'text-muted-foreground'}`}>
-                      Your score: {liveScores[item.trait]}{selected ? ' • Used as your top preference' : ''}
-                    </p>
-                  </button>
-                );
-              })}
+              <div>
+                <p className="text-sm font-medium mb-1">Height (optional)</p>
+                <input className="w-full rounded-xl border bg-card p-3" value={height} onChange={(e) => setHeight(e.target.value)} placeholder={'e.g. 5\'9" / 175 cm'} />
+              </div>
+
+              <div>
+                <p className="text-sm font-medium mb-2">Current relationship status</p>
+                <div className="grid grid-cols-1 gap-2">
+                  {(['Single', 'Divorced', 'Prefer not to say'] as const).map((status) => (
+                    <button key={status} type="button" onClick={() => setRelationshipStatus(status)} className={`rounded-xl py-2.5 ${relationshipStatus === status ? 'gradient-coral text-primary-foreground' : 'bg-secondary'}`}>
+                      {status}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-medium mb-2">What are you looking for?</p>
+                <div className="grid grid-cols-1 gap-2">
+                  {(['Serious relationship', 'Marriage', 'Casual dating', 'Not sure'] as const).map((option) => (
+                    <button key={option} type="button" onClick={() => setLookingFor(option)} className={`rounded-xl py-2.5 ${lookingFor === option ? 'gradient-coral text-primary-foreground' : 'bg-secondary'}`}>
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </>
         )}
 
         <Button onClick={next} disabled={!canNext()} className="w-full mt-6 gradient-coral">
-          {step < TOTAL_STEPS ? 'Next' : 'Finish'}
+          {step < TOTAL_STEPS ? 'Next' : 'Continue to Photos'}
         </Button>
       </div>
     </div>

@@ -26,7 +26,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
-import { derivePersona, PersonalityScores, runKMeans, TraitKey } from '@/lib/scoring';
+import { cosineCompatibility, derivePersona, PersonalityScores, traitAdjustedCompatibility, TraitKey } from '@/lib/scoring';
 import { geohashForLocation } from 'geofire-common';
 
 const TRAITS: TraitKey[] = ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism'];
@@ -43,6 +43,12 @@ export interface UserProfile {
   bio: string;
   age: number;
   gender: 'Male' | 'Female' | 'Other';
+  identity?: 'Male' | 'Female' | 'Non-binary' | 'Prefer not to say';
+  interestedIn?: 'Men' | 'Women' | 'Everyone';
+  dob?: string;
+  phone?: string;
+  emailVerified?: boolean;
+  phoneVerified?: boolean;
   location?: GeoPoint;
   onboardingCompleted: boolean;
   createdAt?: Timestamp;
@@ -61,6 +67,17 @@ export interface UserProfile {
   eatingPreference?: 'omnivore' | 'vegetarian' | 'vegan';
   occupation?: string;
   height?: string;
+  languages?: string[];
+  weekendPreference?: 'Going out' | 'With friends' | 'Working on goals' | 'Relaxing alone';
+  fitnessImportance?: 'Low' | 'Moderate' | 'High';
+  sleepType?: 'Night owl' | 'Early riser';
+  diet?: 'Veg' | 'Non-veg' | 'Vegan';
+  highestEducationLevel?: 'High School' | 'Diploma' | 'Graduate' | 'Postgraduate';
+  collegeUniversity?: string;
+  fieldOfStudy?: string;
+  currentFocus?: 'Studying' | 'Job' | 'Business / Startup' | 'Exploring';
+  relationshipStatus?: 'Single' | 'Divorced' | 'Prefer not to say';
+  lookingFor?: 'Serious relationship' | 'Marriage' | 'Casual dating' | 'Not sure';
 }
 
 export interface MatchResult {
@@ -77,22 +94,12 @@ export interface MatchResult {
 export interface Filters {
   ageMin: number | null;
   ageMax: number | null;
-  gender: 'Male' | 'Female' | 'Any' | null;
 }
 
 export interface AdvancedFilters extends Filters {
   distanceKm: number;
-  relationshipGoal: 'short-term' | 'long-term' | 'friends' | 'open to anything' | null;
-  wantsChildren: 'yes' | 'no' | 'unsure' | null;
-  hasChildren: 'yes' | 'no' | null;
-  smoking: 'yes' | 'no' | 'prefer not to say' | null;
-  drinking: 'yes' | 'no' | 'prefer not to say' | null;
-  exerciseFrequency: 'never' | 'rarely' | 'daily' | null;
-  sleepHabits: 'early bird' | 'night owl' | 'flexible' | null;
-  eatingPreference: 'omnivore' | 'vegetarian' | 'vegan' | null;
-  heightMin: number | null;
-  heightMax: number | null;
-  occupation: string;
+  educationLevel: 'High School' | 'Diploma' | 'Graduate' | 'Postgraduate' | null;
+  lifestylePreference: 'Non-smoker' | 'Non-drinker' | 'Vegetarian' | 'Vegan' | 'Active' | null;
 }
 
 // ── Auth ──
@@ -110,6 +117,13 @@ async function ensureUserDoc(base: Partial<UserProfile> = {}) {
       bio: base.bio ?? '',
       age: base.age ?? 18,
       gender: base.gender ?? 'Other',
+      identity: base.identity ?? 'Prefer not to say',
+      interestedIn: base.interestedIn ?? 'Everyone',
+      dob: base.dob ?? '',
+      phone: base.phone ?? '',
+      city: base.city ?? '',
+      emailVerified: Boolean(base.emailVerified),
+      phoneVerified: Boolean(base.phoneVerified),
       createdAt: serverTimestamp(),
       onboardingCompleted: false,
       swipeRemaining: 25,
@@ -127,6 +141,13 @@ export async function signupUser(payload: {
   age: number;
   gender: UserProfile['gender'];
   bio: string;
+  identity: NonNullable<UserProfile['identity']>;
+  interestedIn: NonNullable<UserProfile['interestedIn']>;
+  dob: string;
+  phone: string;
+  city: string;
+  emailVerified: boolean;
+  phoneVerified: boolean;
 }) {
   await createUserWithEmailAndPassword(auth, payload.email, payload.password);
   await ensureUserDoc(payload);
@@ -190,7 +211,7 @@ export async function uploadUserPhoto(userId: string, file: File) {
   const userRef = doc(db, 'users', userId);
   const snapshot = await getDoc(userRef);
   const currentPhotos = (snapshot.data()?.photos ?? []) as string[];
-  await updateDoc(userRef, { photos: [...currentPhotos, asDataUrl].slice(0, 6) });
+  await updateDoc(userRef, { photos: [...currentPhotos, asDataUrl].slice(0, 5) });
   return asDataUrl;
 }
 
@@ -226,6 +247,8 @@ export async function saveQuestionnaire(userId: string, payload: {
   eatingPreference: NonNullable<UserProfile['eatingPreference']>;
   occupation: string;
   height: string;
+  relationshipStatus: NonNullable<UserProfile['relationshipStatus']>;
+  lookingFor: NonNullable<UserProfile['lookingFor']>;
 }) {
   await updateDoc(doc(db, 'users', userId), {
     bio: payload.bio,
@@ -246,6 +269,8 @@ export async function saveQuestionnaire(userId: string, payload: {
     eatingPreference: payload.eatingPreference,
     occupation: payload.occupation,
     height: payload.height,
+    relationshipStatus: payload.relationshipStatus,
+    lookingFor: payload.lookingFor,
   });
 
   await setDoc(doc(db, 'personalityScores', userId), payload.scores);
@@ -451,6 +476,8 @@ export async function swipeUser(targetId: string, direction: 'left' | 'right') {
 
 
 const DISCOVER_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const DISCOVER_COMPATIBILITY_MIN = 75;
+const DISCOVER_SWIPE_LIMIT = 15;
 
 export interface DiscoverProfile {
   id: string;
@@ -470,10 +497,19 @@ export interface DiscoverProfile {
   sleepHabits?: string;
   eatingPreference?: string;
   occupation?: string;
+  educationLevel?: string;
   height?: string;
   matchingScores?: Partial<Record<TraitKey, number>>;
   persona?: string;
+  compatibilityScore: number;
+  cosineScore: number;
 }
+
+export type DiscoverSwipeStatus = {
+  remaining: number;
+  limitReached: boolean;
+  resetAt: number;
+};
 
 function toRad(value: number) {
   return (value * Math.PI) / 180;
@@ -490,17 +526,6 @@ function distanceKmBetween(a: { latitude: number; longitude: number }, b: { lati
   const c = 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
   return R * c;
 }
-
-function parseHeightCm(value?: string) {
-  if (!value) return null;
-  const match = value.match(/(\d{2,3})/);
-  if (!match) return null;
-  const parsed = Number(match[1]);
-  if (!Number.isFinite(parsed)) return null;
-  if (parsed < 90) return null;
-  return parsed;
-}
-
 
 function discoverStorageKey(uid: string) {
   return `spark_discover_profiles_${uid}`;
@@ -520,6 +545,10 @@ function discoverLikedKey(uid: string) {
 
 function discoverDislikedKey(uid: string) {
   return `spark_discover_disliked_${uid}`;
+}
+
+function discoverSwipeStateKey(uid: string) {
+  return `spark_discover_swipe_state_${uid}`;
 }
 
 function getLocalSwipedIds(uid: string): string[] {
@@ -569,36 +598,6 @@ function setStoredDiscoverProfiles(uid: string, profiles: DiscoverProfile[]) {
   localStorage.setItem(discoverStorageKey(uid), JSON.stringify(profiles));
 }
 
-
-function filterByCorePreferences(profile: DiscoverProfile, me: UserProfile, filters: AdvancedFilters) {
-  if (filters.ageMin != null && profile.age < filters.ageMin) return false;
-  if (filters.ageMax != null && profile.age > filters.ageMax) return false;
-
-  if (filters.gender && filters.gender !== 'Any' && profile.gender && profile.gender !== filters.gender) return false;
-
-  if (me.location && profile.location) {
-    const distance = distanceKmBetween(
-      { latitude: me.location.latitude, longitude: me.location.longitude },
-      profile.location,
-    );
-    if (distance > filters.distanceKm) return false;
-  }
-
-  return true;
-}
-
-function sortDiscoverProfilesByPriority(profiles: DiscoverProfile[], priorityOrder: TraitKey[]) {
-  const order = priorityOrder.length ? priorityOrder : TRAITS;
-  return [...profiles].sort((a, b) => {
-    for (const trait of order) {
-      const aScore = Number(a.matchingScores?.[trait] ?? -1);
-      const bScore = Number(b.matchingScores?.[trait] ?? -1);
-      if (aScore !== bScore) return bScore - aScore;
-    }
-    return 0;
-  });
-}
-
 function getCompleteTraitScores(raw?: Partial<Record<TraitKey, number>>) {
   if (!raw) return null;
   const completed = TRAITS.reduce((acc, trait) => {
@@ -609,57 +608,114 @@ function getCompleteTraitScores(raw?: Partial<Record<TraitKey, number>>) {
   return completed;
 }
 
-function sortDiscoverProfilesWithKMeans(
-  profiles: DiscoverProfile[],
-  meScores: Record<TraitKey, number> | undefined,
-  priorityOrder: TraitKey[],
-) {
-  if (!meScores || profiles.length === 0) return sortDiscoverProfilesByPriority(profiles, priorityOrder);
-
-  const dataset: Record<string, Record<TraitKey, number>> = { me: meScores };
-  profiles.forEach((profile) => {
-    const scores = getCompleteTraitScores(profile.matchingScores);
-    if (scores) dataset[profile.id] = scores;
-  });
-
-  const { assignments } = runKMeans(dataset, 3);
-  const myCluster = assignments['me'];
-
-  return [...profiles].sort((a, b) => {
-    const aInMyCluster = assignments[a.id] === myCluster ? 1 : 0;
-    const bInMyCluster = assignments[b.id] === myCluster ? 1 : 0;
-    if (aInMyCluster !== bInMyCluster) return bInMyCluster - aInMyCluster;
-
-    for (const trait of priorityOrder) {
-      const aScore = Number(a.matchingScores?.[trait] ?? -1);
-      const bScore = Number(b.matchingScores?.[trait] ?? -1);
-      if (aScore !== bScore) return bScore - aScore;
-    }
-    return 0;
-  });
+function resolveDefaultPreferredGender(me: UserProfile) {
+  return me.gender === 'Male' ? 'Female' : me.gender === 'Female' ? 'Male' : 'Everyone';
 }
 
-function filterByAdvancedPreferences(profile: DiscoverProfile, me: UserProfile, filters: AdvancedFilters) {
-  if (!filterByCorePreferences(profile, me, filters)) return false;
+function matchDefaultPreferredGender(profile: DiscoverProfile, me: UserProfile) {
+  const preferredGender = resolveDefaultPreferredGender(me);
+  if (preferredGender === 'Everyone') return true;
+  return !profile.gender || profile.gender === preferredGender;
+}
 
-  if (filters.relationshipGoal && profile.relationshipGoal && profile.relationshipGoal !== filters.relationshipGoal) return false;
-  if (filters.wantsChildren && profile.wantsChildren && profile.wantsChildren !== filters.wantsChildren) return false;
-  if (filters.hasChildren && profile.hasChildren && profile.hasChildren !== filters.hasChildren) return false;
-  if (filters.smoking && profile.smoking && profile.smoking !== filters.smoking) return false;
-  if (filters.drinking && profile.drinking && profile.drinking !== filters.drinking) return false;
-  if (filters.exerciseFrequency && profile.exerciseFrequency && profile.exerciseFrequency !== filters.exerciseFrequency) return false;
-  if (filters.sleepHabits && profile.sleepHabits && profile.sleepHabits !== filters.sleepHabits) return false;
-  if (filters.eatingPreference && profile.eatingPreference && profile.eatingPreference !== filters.eatingPreference) return false;
+function withinDistanceRange(profile: DiscoverProfile, me: UserProfile, distanceKm: number) {
+  if (!me.location || !profile.location) return true;
+  const distance = distanceKmBetween(
+    { latitude: me.location.latitude, longitude: me.location.longitude },
+    profile.location,
+  );
+  return distance <= distanceKm;
+}
 
-  if (filters.occupation.trim().length > 0) {
-    const occupation = (profile.occupation ?? '').toLowerCase();
-    if (!occupation.includes(filters.occupation.trim().toLowerCase())) return false;
-  }
+function filterByUserFilters(profile: DiscoverProfile, me: UserProfile, filters: AdvancedFilters) {
+  if (filters.ageMin != null && profile.age < filters.ageMin) return false;
+  if (filters.ageMax != null && profile.age > filters.ageMax) return false;
+  if (!withinDistanceRange(profile, me, filters.distanceKm)) return false;
 
-  const heightCm = parseHeightCm(profile.height);
-  if (heightCm != null && filters.heightMin != null && filters.heightMax != null && (heightCm < filters.heightMin || heightCm > filters.heightMax)) return false;
+  if (filters.educationLevel && profile.educationLevel && profile.educationLevel !== filters.educationLevel) return false;
+
+  if (filters.lifestylePreference === 'Non-smoker' && profile.smoking && profile.smoking !== 'no') return false;
+  if (filters.lifestylePreference === 'Non-drinker' && profile.drinking && profile.drinking !== 'no') return false;
+  if (filters.lifestylePreference === 'Vegetarian' && profile.eatingPreference && profile.eatingPreference !== 'vegetarian') return false;
+  if (filters.lifestylePreference === 'Vegan' && profile.eatingPreference && profile.eatingPreference !== 'vegan') return false;
+  if (filters.lifestylePreference === 'Active' && profile.exerciseFrequency && profile.exerciseFrequency !== 'daily') return false;
 
   return true;
+}
+
+function sortByCompatibilityDesc(profiles: DiscoverProfile[]) {
+  return [...profiles].sort((a, b) => b.compatibilityScore - a.compatibilityScore);
+}
+
+function getDiscoverSwipeStatusForUid(uid: string): DiscoverSwipeStatus {
+  const now = Date.now();
+  const raw = localStorage.getItem(discoverSwipeStateKey(uid));
+
+  if (!raw) {
+    return {
+      remaining: DISCOVER_SWIPE_LIMIT,
+      limitReached: false,
+      resetAt: now + DISCOVER_CACHE_TTL_MS,
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as { count?: number; resetAt?: number };
+    const resetAt = Number(parsed.resetAt ?? now + DISCOVER_CACHE_TTL_MS);
+    const count = Number(parsed.count ?? 0);
+
+    if (now >= resetAt) {
+      return {
+        remaining: DISCOVER_SWIPE_LIMIT,
+        limitReached: false,
+        resetAt: now + DISCOVER_CACHE_TTL_MS,
+      };
+    }
+
+    const remaining = Math.max(0, DISCOVER_SWIPE_LIMIT - count);
+    return {
+      remaining,
+      limitReached: remaining <= 0,
+      resetAt,
+    };
+  } catch {
+    return {
+      remaining: DISCOVER_SWIPE_LIMIT,
+      limitReached: false,
+      resetAt: now + DISCOVER_CACHE_TTL_MS,
+    };
+  }
+}
+
+function saveDiscoverSwipeStatusForUid(uid: string, count: number, resetAt: number) {
+  localStorage.setItem(discoverSwipeStateKey(uid), JSON.stringify({ count, resetAt }));
+}
+
+function incrementDiscoverSwipeForUid(uid: string) {
+  const now = Date.now();
+  const status = getDiscoverSwipeStatusForUid(uid);
+  const windowResetAt = status.resetAt > now ? status.resetAt : now + DISCOVER_CACHE_TTL_MS;
+  const nextCount = DISCOVER_SWIPE_LIMIT - status.remaining + 1;
+  saveDiscoverSwipeStatusForUid(uid, Math.min(nextCount, DISCOVER_SWIPE_LIMIT), windowResetAt);
+  return getDiscoverSwipeStatusForUid(uid);
+}
+
+export function getDiscoverSwipeStatus(): DiscoverSwipeStatus {
+  const uid = getCurrentUserId();
+  if (!uid) {
+    return {
+      remaining: DISCOVER_SWIPE_LIMIT,
+      limitReached: false,
+      resetAt: Date.now() + DISCOVER_CACHE_TTL_MS,
+    };
+  }
+
+  const status = getDiscoverSwipeStatusForUid(uid);
+  if (Date.now() >= status.resetAt || (status.remaining === DISCOVER_SWIPE_LIMIT && status.limitReached)) {
+    saveDiscoverSwipeStatusForUid(uid, 0, status.resetAt);
+    return getDiscoverSwipeStatusForUid(uid);
+  }
+  return status;
 }
 
 async function fetchProfilesFromBackend(uid: string): Promise<DiscoverProfile[]> {
@@ -667,19 +723,25 @@ async function fetchProfilesFromBackend(uid: string): Promise<DiscoverProfile[]>
   if (!me) return [];
 
   const filters = await getAdvancedFilters();
-  const priorityOrder = await getUserPriorityOrder();
   const meScores = getCompleteTraitScores(me.matchingScores);
+  if (!meScores) {
+    setStoredDiscoverProfiles(uid, []);
+    localStorage.setItem(discoverFetchAtKey(uid), String(Date.now()));
+    return [];
+  }
+
   const snap = await getDocs(query(collection(db, 'users')));
 
-  const allProfiles = snap.docs
+  const scored = snap.docs
     .filter((d) => d.id !== uid)
     .map((d) => {
       const u = d.data() as Record<string, unknown>;
       const loc = u.location as GeoPoint | undefined;
       const location = loc ? { latitude: loc.latitude, longitude: loc.longitude } : undefined;
       const traitScores = getCompleteTraitScores((u.matchingScores as Partial<Record<TraitKey, number>> | undefined) ?? undefined);
+      if (!traitScores) return null;
 
-      return {
+      const candidateProfile = {
         id: d.id,
         name: String(u.name ?? ''),
         age: Number(u.age ?? 0),
@@ -697,20 +759,27 @@ async function fetchProfilesFromBackend(uid: string): Promise<DiscoverProfile[]>
         sleepHabits: String(u.sleepHabits ?? ''),
         eatingPreference: String(u.eatingPreference ?? ''),
         occupation: String(u.occupation ?? ''),
+        educationLevel: String(u.highestEducationLevel ?? u.educationLevel ?? ''),
         height: String(u.height ?? ''),
-        matchingScores: (u.matchingScores as Partial<Record<TraitKey, number>> | undefined) ?? undefined,
-        persona: traitScores ? derivePersona(traitScores as PersonalityScores) : 'Balanced',
+        matchingScores: traitScores,
+        persona: derivePersona(traitScores as PersonalityScores),
+        compatibilityScore: traitAdjustedCompatibility(meScores as PersonalityScores, traitScores as PersonalityScores),
+        cosineScore: Math.round(cosineCompatibility(meScores as PersonalityScores, traitScores as PersonalityScores)),
       } as DiscoverProfile;
+
+      return candidateProfile;
     })
-    .filter((profile) => profile.age >= 18);
+    .filter((profile): profile is DiscoverProfile => Boolean(profile))
+    .filter((profile) => profile.age >= 18)
+    .filter((profile) => matchDefaultPreferredGender(profile, me))
+    .filter((profile) => withinDistanceRange(profile, me, filters.distanceKm))
+    .filter((profile) => profile.compatibilityScore >= DISCOVER_COMPATIBILITY_MIN);
 
-  const filteredProfiles = allProfiles.filter((profile) => filterByAdvancedPreferences(profile, me, filters));
-  const profiles = sortDiscoverProfilesWithKMeans(filteredProfiles, meScores ?? undefined, priorityOrder);
-
-  setStoredDiscoverProfiles(uid, profiles);
+  const sortedProfiles = sortByCompatibilityDesc(scored);
+  setStoredDiscoverProfiles(uid, sortedProfiles);
   localStorage.setItem(discoverFetchAtKey(uid), String(Date.now()));
 
-  return profiles;
+  return sortedProfiles;
 }
 
 function toMatchResult(profile: DiscoverProfile): MatchResult {
@@ -720,14 +789,13 @@ function toMatchResult(profile: DiscoverProfile): MatchResult {
     age: profile.age,
     bio: profile.bio ?? '',
     photos: profile.photos,
-    matchScore: 0,
+    matchScore: profile.compatibilityScore,
   };
 }
 
 export function getLocalDiscoverSwipedCount() {
-  const uid = getCurrentUserId();
-  if (!uid) return 0;
-  return getLocalSwipedIds(uid).length;
+  const status = getDiscoverSwipeStatus();
+  return DISCOVER_SWIPE_LIMIT - status.remaining;
 }
 
 export async function getDiscoverProfiles(options?: { forceRefresh?: boolean }): Promise<{ matches: MatchResult[]; fromCache: boolean }> {
@@ -749,12 +817,16 @@ export async function getDiscoverProfiles(options?: { forceRefresh?: boolean }):
     fromCache = false;
   }
 
-  const swipedIds = new Set(getLocalSwipedIds(uid));
-  const filtered = profiles.filter((profile) => !swipedIds.has(profile.id));
+  const filters = await getAdvancedFilters();
+  const me = await getCurrentUserProfile();
+  if (!me) return { matches: [], fromCache };
 
-  if (profiles.length !== filtered.length) {
-    setStoredDiscoverProfiles(uid, filtered);
-  }
+  const swipedIds = new Set(getLocalSwipedIds(uid));
+  const filtered = sortByCompatibilityDesc(
+    profiles
+      .filter((profile) => !swipedIds.has(profile.id))
+      .filter((profile) => filterByUserFilters(profile, me, filters)),
+  );
 
   return { matches: filtered.map(toMatchResult), fromCache };
 }
@@ -767,7 +839,21 @@ export function getDiscoverProfileById(profileId: string) {
 
 export function markDiscoverProfileSwiped(profileId: string, direction: 'left' | 'right') {
   const uid = getCurrentUserId();
-  if (!uid) return;
+  if (!uid) {
+    return {
+      allowed: false,
+      status: {
+        remaining: 0,
+        limitReached: true,
+        resetAt: Date.now() + DISCOVER_CACHE_TTL_MS,
+      },
+    };
+  }
+
+  const currentStatus = getDiscoverSwipeStatusForUid(uid);
+  if (currentStatus.limitReached) {
+    return { allowed: false, status: currentStatus };
+  }
 
   const swipedIds = getLocalSwipedIds(uid);
   if (!swipedIds.includes(profileId)) {
@@ -784,6 +870,8 @@ export function markDiscoverProfileSwiped(profileId: string, direction: 'left' |
   const profiles = getStoredDiscoverProfiles(uid);
   const next = profiles.filter((profile) => profile.id !== profileId);
   setStoredDiscoverProfiles(uid, next);
+
+  return { allowed: true, status: incrementDiscoverSwipeForUid(uid) };
 }
 
 // ── Matches & Messages ──
@@ -850,7 +938,7 @@ const FILTERS_KEY = 'spark_filters';
 
 export function getFilters(): Filters {
   const raw = localStorage.getItem(FILTERS_KEY);
-  return raw ? JSON.parse(raw) : { ageMin: null, ageMax: null, gender: null };
+  return raw ? JSON.parse(raw) : { ageMin: null, ageMax: null };
 }
 
 export function setFilters(filters: Filters) {
@@ -862,19 +950,9 @@ function defaultAdvancedFilters(): AdvancedFilters {
   return {
     ageMin: null,
     ageMax: null,
-    gender: null,
     distanceKm: 25,
-    relationshipGoal: null,
-    wantsChildren: null,
-    hasChildren: null,
-    smoking: null,
-    drinking: null,
-    exerciseFrequency: null,
-    sleepHabits: null,
-    eatingPreference: null,
-    heightMin: null,
-    heightMax: null,
-    occupation: '',
+    educationLevel: null,
+    lifestylePreference: null,
   };
 }
 
@@ -897,19 +975,9 @@ export async function getAdvancedFilters(): Promise<AdvancedFilters> {
   return {
     ageMin: pref.minAge == null ? (local.ageMin ?? fallback.ageMin) : Number(pref.minAge),
     ageMax: pref.maxAge == null ? (local.ageMax ?? fallback.ageMax) : Number(pref.maxAge),
-    gender: (pref.gender as AdvancedFilters['gender']) ?? local.gender ?? fallback.gender,
     distanceKm: Number(pref.distanceKm ?? fallback.distanceKm),
-    relationshipGoal: (pref.relationshipGoal as AdvancedFilters['relationshipGoal']) ?? fallback.relationshipGoal,
-    wantsChildren: (pref.wantsChildren as AdvancedFilters['wantsChildren']) ?? fallback.wantsChildren,
-    hasChildren: (pref.hasChildren as AdvancedFilters['hasChildren']) ?? fallback.hasChildren,
-    smoking: (pref.smoking as AdvancedFilters['smoking']) ?? fallback.smoking,
-    drinking: (pref.drinking as AdvancedFilters['drinking']) ?? fallback.drinking,
-    exerciseFrequency: (pref.exerciseFrequency as AdvancedFilters['exerciseFrequency']) ?? fallback.exerciseFrequency,
-    sleepHabits: (pref.sleepHabits as AdvancedFilters['sleepHabits']) ?? fallback.sleepHabits,
-    eatingPreference: (pref.eatingPreference as AdvancedFilters['eatingPreference']) ?? fallback.eatingPreference,
-    heightMin: pref.heightMin == null ? fallback.heightMin : Number(pref.heightMin),
-    heightMax: pref.heightMax == null ? fallback.heightMax : Number(pref.heightMax),
-    occupation: String(pref.occupation ?? fallback.occupation),
+    educationLevel: (pref.educationLevel as AdvancedFilters['educationLevel']) ?? fallback.educationLevel,
+    lifestylePreference: (pref.lifestylePreference as AdvancedFilters['lifestylePreference']) ?? fallback.lifestylePreference,
   };
 }
 
@@ -926,7 +994,7 @@ export function clearDiscoverLocalCache() {
 export async function saveAdvancedFilters(filters: AdvancedFilters) {
   const uid = getCurrentUserId();
 
-  setFilters({ ageMin: filters.ageMin, ageMax: filters.ageMax, gender: filters.gender });
+  setFilters({ ageMin: filters.ageMin, ageMax: filters.ageMax });
   clearDiscoverLocalCache();
 
   if (!uid) return;
@@ -936,19 +1004,9 @@ export async function saveAdvancedFilters(filters: AdvancedFilters) {
     {
       minAge: filters.ageMin,
       maxAge: filters.ageMax,
-      gender: filters.gender,
       distanceKm: filters.distanceKm,
-      relationshipGoal: filters.relationshipGoal,
-      wantsChildren: filters.wantsChildren,
-      hasChildren: filters.hasChildren,
-      smoking: filters.smoking,
-      drinking: filters.drinking,
-      exerciseFrequency: filters.exerciseFrequency,
-      sleepHabits: filters.sleepHabits,
-      eatingPreference: filters.eatingPreference,
-      heightMin: filters.heightMin,
-      heightMax: filters.heightMax,
-      occupation: filters.occupation,
+      educationLevel: filters.educationLevel,
+      lifestylePreference: filters.lifestylePreference,
     },
     { merge: true },
   );
@@ -960,17 +1018,17 @@ export async function updateUserProfileDetails(
     Pick<
       UserProfile,
       | 'bio'
-      | 'city'
-      | 'relationshipGoal'
-      | 'wantsChildren'
-      | 'hasChildren'
+      | 'languages'
+      | 'weekendPreference'
+      | 'fitnessImportance'
+      | 'sleepType'
       | 'smoking'
       | 'drinking'
-      | 'exerciseFrequency'
-      | 'sleepHabits'
-      | 'eatingPreference'
-      | 'occupation'
-      | 'height'
+      | 'diet'
+      | 'highestEducationLevel'
+      | 'collegeUniversity'
+      | 'fieldOfStudy'
+      | 'currentFocus'
     >
   >,
 ) {

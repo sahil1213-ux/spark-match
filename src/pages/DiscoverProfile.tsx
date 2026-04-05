@@ -12,10 +12,15 @@ export default function DiscoverProfilePage() {
   const stateProfile = (location.state as { profile?: DiscoverProfile } | null)?.profile ?? null;
   const profile = useMemo(() => stateProfile ?? (profileId ? getDiscoverProfileById(profileId) : null), [profileId, stateProfile]);
   const [photoIdx, setPhotoIdx] = useState(0);
+  const [limitMessage, setLimitMessage] = useState<string | null>(null);
 
   const handleAction = async (direction: 'left' | 'right') => {
     if (!profile) return;
-    markDiscoverProfileSwiped(profile.id, direction);
+    const swipeResult = markDiscoverProfileSwiped(profile.id, direction);
+    if (!swipeResult.allowed) {
+      setLimitMessage('Swipe limit reached. Please come back after 24 hours.');
+      return;
+    }
     try {
       await swipeUser(profile.id, direction);
     } catch (error) {
@@ -114,6 +119,8 @@ export default function DiscoverProfilePage() {
             </div>
           </div>
         </div>
+
+        {limitMessage && <p className="text-sm text-destructive">{limitMessage}</p>}
 
         <div className="flex gap-3 pb-4">
           <Button variant="outline" className="flex-1 rounded-2xl h-12" onClick={() => void handleAction('left')}>

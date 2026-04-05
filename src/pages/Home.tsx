@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { getDiscoverProfileById, getDiscoverProfiles, getLocalDiscoverSwipedCount, markDiscoverProfileSwiped, swipeUser, MatchResult } from '@/lib/store';
+import { getDiscoverProfileById, getDiscoverProfiles, getDiscoverSwipeStatus, getLocalDiscoverSwipedCount, markDiscoverProfileSwiped, swipeUser, MatchResult } from '@/lib/store';
 import BottomNav from '@/components/BottomNav';
 import SwipeCard from '@/components/SwipeCard';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ export default function Home() {
   const location = useLocation();
   const [candidates, setCandidates] = useState<MatchResult[]>([]);
   const [swipedCount, setSwipedCount] = useState(0);
+  const [swipeRemaining, setSwipeRemaining] = useState(15);
   const [message, setMessage] = useState<string | null>(null);
   const [matchPopup, setMatchPopup] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -20,6 +21,7 @@ export default function Home() {
       const result = await getDiscoverProfiles({ forceRefresh });
       setCandidates(result.matches);
       setSwipedCount(getLocalDiscoverSwipedCount());
+      setSwipeRemaining(getDiscoverSwipeStatus().remaining);
       setMessage(result.matches.length ? null : 'No profiles match your filters right now.');
     } catch (e) {
       console.error('Failed to load matches', e);
@@ -39,9 +41,16 @@ export default function Home() {
   const onSwipe = async (direction: 'left' | 'right') => {
     if (!current) return;
 
-    markDiscoverProfileSwiped(current.uid, direction);
+    const swipeResult = markDiscoverProfileSwiped(current.uid, direction);
+    if (!swipeResult.allowed) {
+      setMessage('Swipe limit reached. Please come back after 24 hours.');
+      setSwipeRemaining(swipeResult.status.remaining);
+      return;
+    }
+
     setCandidates((prev) => prev.slice(1));
     setSwipedCount(getLocalDiscoverSwipedCount());
+    setSwipeRemaining(swipeResult.status.remaining);
 
     try {
       const result = await swipeUser(current.uid, direction);
@@ -59,7 +68,7 @@ export default function Home() {
       <div className="max-w-sm mx-auto px-4 pt-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-heading font-bold">Discover</h1>
-          <span className="text-sm text-muted-foreground">{swipedCount} swiped</span>
+          <span className="text-sm text-muted-foreground">{swipedCount} swiped · {swipeRemaining} left</span>
         </div>
 
         <Button variant="outline" className="w-full mb-4 rounded-xl" onClick={() => void loadCandidates(true)}>

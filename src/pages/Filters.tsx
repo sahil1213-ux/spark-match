@@ -9,19 +9,9 @@ import { toast } from 'sonner';
 const defaultFilters: AdvancedFilters = {
   ageMin: null,
   ageMax: null,
-  gender: null,
   distanceKm: 25,
-  relationshipGoal: null,
-  smoking: null,
-  drinking: null,
-  eatingPreference: null,
-  wantsChildren: null,
-  hasChildren: null,
-  exerciseFrequency: null,
-  sleepHabits: null,
-  heightMin: null,
-  heightMax: null,
-  occupation: '',
+  educationLevel: null,
+  lifestylePreference: null,
 };
 
 function OptionGroup<T extends string>({
@@ -117,7 +107,6 @@ export default function Filters() {
             />
           </div>
 
-          <OptionGroup title="Preferred Gender" options={['Male', 'Female', 'Any'] as const} value={filters.gender} onChange={(gender) => setFilters((f) => ({ ...f, gender }))} />
 
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -133,10 +122,18 @@ export default function Filters() {
             />
           </div>
 
-          <OptionGroup title="Relationship Intent" options={['short-term', 'long-term', 'friends', 'open to anything'] as const} value={filters.relationshipGoal} onChange={(relationshipGoal) => setFilters((f) => ({ ...f, relationshipGoal }))} />
-          <OptionGroup title="Smoke" options={['yes', 'no', 'prefer not to say'] as const} value={filters.smoking} onChange={(smoking) => setFilters((f) => ({ ...f, smoking }))} />
-          <OptionGroup title="Drink" options={['yes', 'no', 'prefer not to say'] as const} value={filters.drinking} onChange={(drinking) => setFilters((f) => ({ ...f, drinking }))} />
-          <OptionGroup title="Eating preference" options={['omnivore', 'vegetarian', 'vegan'] as const} value={filters.eatingPreference} onChange={(eatingPreference) => setFilters((f) => ({ ...f, eatingPreference }))} />
+          <OptionGroup
+            title="Preferred education level"
+            options={['High School', 'Diploma', 'Graduate', 'Postgraduate'] as const}
+            value={filters.educationLevel}
+            onChange={(educationLevel) => setFilters((f) => ({ ...f, educationLevel }))}
+          />
+          <OptionGroup
+            title="Lifestyle preference"
+            options={['Non-smoker', 'Non-drinker', 'Vegetarian', 'Vegan', 'Active'] as const}
+            value={filters.lifestylePreference}
+            onChange={(lifestylePreference) => setFilters((f) => ({ ...f, lifestylePreference }))}
+          />
         </div>
 
         <Button onClick={() => void handleSave()} disabled={saving} className="w-full h-12 rounded-2xl gradient-coral text-primary-foreground font-semibold text-base mt-6">

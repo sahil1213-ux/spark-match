@@ -8,33 +8,31 @@ import { toast } from 'sonner';
 
 type EditForm = Pick<
   UserProfile,
-  | 'bio'
-  | 'city'
-  | 'relationshipGoal'
-  | 'wantsChildren'
-  | 'hasChildren'
+  | 'languages'
+  | 'weekendPreference'
+  | 'fitnessImportance'
+  | 'sleepType'
   | 'smoking'
   | 'drinking'
-  | 'exerciseFrequency'
-  | 'sleepHabits'
-  | 'eatingPreference'
-  | 'occupation'
-  | 'height'
+  | 'diet'
+  | 'highestEducationLevel'
+  | 'collegeUniversity'
+  | 'fieldOfStudy'
+  | 'currentFocus'
 >;
 
 const defaultForm: EditForm = {
-  bio: '',
-  city: '',
-  relationshipGoal: undefined,
-  wantsChildren: undefined,
-  hasChildren: undefined,
+  languages: [],
+  weekendPreference: undefined,
+  fitnessImportance: undefined,
+  sleepType: undefined,
   smoking: undefined,
   drinking: undefined,
-  exerciseFrequency: undefined,
-  sleepHabits: undefined,
-  eatingPreference: undefined,
-  occupation: '',
-  height: '',
+  diet: undefined,
+  highestEducationLevel: undefined,
+  collegeUniversity: '',
+  fieldOfStudy: '',
+  currentFocus: undefined,
 };
 
 export default function EditProfile() {
@@ -53,18 +51,17 @@ export default function EditProfile() {
 
       setUser(me);
       setForm({
-        bio: me.bio ?? '',
-        city: me.city ?? '',
-        relationshipGoal: me.relationshipGoal,
-        wantsChildren: me.wantsChildren,
-        hasChildren: me.hasChildren,
+        languages: me.languages ?? [],
+        weekendPreference: me.weekendPreference,
+        fitnessImportance: me.fitnessImportance,
+        sleepType: me.sleepType,
         smoking: me.smoking,
         drinking: me.drinking,
-        exerciseFrequency: me.exerciseFrequency,
-        sleepHabits: me.sleepHabits,
-        eatingPreference: me.eatingPreference,
-        occupation: me.occupation ?? '',
-        height: me.height ?? '',
+        diet: me.diet,
+        highestEducationLevel: me.highestEducationLevel,
+        collegeUniversity: me.collegeUniversity ?? '',
+        fieldOfStudy: me.fieldOfStudy ?? '',
+        currentFocus: me.currentFocus,
       });
     };
 
@@ -87,6 +84,17 @@ export default function EditProfile() {
   };
 
   if (!user) return null;
+
+  const languageOptions = ['English', 'Hindi', 'Spanish', 'French', 'German', 'Telugu', 'Tamil'] as const;
+  const toggleLanguage = (language: string) => {
+    setForm((prev) => {
+      const current = prev.languages ?? [];
+      const next = current.includes(language)
+        ? current.filter((item) => item !== language)
+        : [...current, language];
+      return { ...prev, languages: next };
+    });
+  };
 
   return (
     <div className="min-h-screen bg-background safe-top pb-24">
@@ -115,24 +123,52 @@ export default function EditProfile() {
         </div>
 
         <div className="rounded-3xl border bg-card p-4 space-y-3">
-          <label className="text-sm font-medium block">Bio</label>
-          <textarea value={form.bio} onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))} className="w-full min-h-24 rounded-2xl border bg-background p-3 text-sm" />
+          <label className="text-sm font-medium block">1. Which languages do you speak? (multi-select)</label>
+          <div className="grid grid-cols-2 gap-2">
+            {languageOptions.map((language) => {
+              const selected = (form.languages ?? []).includes(language);
+              return (
+                <button
+                  type="button"
+                  key={language}
+                  onClick={() => toggleLanguage(language)}
+                  className={`rounded-2xl px-3 py-2.5 text-sm font-medium transition-colors ${
+                    selected ? 'gradient-coral text-primary-foreground' : 'border bg-background'
+                  }`}
+                >
+                  {language}
+                </button>
+              );
+            })}
+          </div>
 
-          <label className="text-sm font-medium block">Current city / town</label>
-          <input value={form.city} onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))} className="w-full rounded-2xl border bg-background px-3 py-2.5" />
-
-          <label className="text-sm font-medium block">Relationship Intent</label>
-          <select value={form.relationshipGoal ?? ''} onChange={(e) => setForm((f) => ({ ...f, relationshipGoal: (e.target.value || undefined) as UserProfile['relationshipGoal'] }))} className="w-full rounded-2xl border bg-background px-3 py-2.5">
+          <label className="text-sm font-medium block">2. How do you spend your weekends?</label>
+          <select value={form.weekendPreference ?? ''} onChange={(e) => setForm((f) => ({ ...f, weekendPreference: (e.target.value || undefined) as UserProfile['weekendPreference'] }))} className="w-full rounded-2xl border bg-background px-3 py-2.5">
             <option value="">Not selected</option>
-            <option value="short-term">Short-term</option>
-            <option value="long-term">Long-term</option>
-            <option value="friends">Friends</option>
-            <option value="open to anything">Open to anything</option>
+            <option value="Going out">Going out</option>
+            <option value="With friends">With friends</option>
+            <option value="Working on goals">Working on goals</option>
+            <option value="Relaxing alone">Relaxing alone</option>
+          </select>
+
+          <label className="text-sm font-medium block">3. How important is fitness in your life?</label>
+          <select value={form.fitnessImportance ?? ''} onChange={(e) => setForm((f) => ({ ...f, fitnessImportance: (e.target.value || undefined) as UserProfile['fitnessImportance'] }))} className="w-full rounded-2xl border bg-background px-3 py-2.5">
+            <option value="">Not selected</option>
+            <option value="Low">Low</option>
+            <option value="Moderate">Moderate</option>
+            <option value="High">High</option>
+          </select>
+
+          <label className="text-sm font-medium block">4. Are you a night owl or early riser?</label>
+          <select value={form.sleepType ?? ''} onChange={(e) => setForm((f) => ({ ...f, sleepType: (e.target.value || undefined) as UserProfile['sleepType'] }))} className="w-full rounded-2xl border bg-background px-3 py-2.5">
+            <option value="">Not selected</option>
+            <option value="Night owl">Night owl</option>
+            <option value="Early riser">Early riser</option>
           </select>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-sm font-medium block">Smoke</label>
+              <label className="text-sm font-medium block">5. Do you smoke?</label>
               <select value={form.smoking ?? ''} onChange={(e) => setForm((f) => ({ ...f, smoking: (e.target.value || undefined) as UserProfile['smoking'] }))} className="w-full rounded-2xl border bg-background px-3 py-2.5">
                 <option value="">Not selected</option>
                 <option value="yes">Yes</option>
@@ -141,7 +177,7 @@ export default function EditProfile() {
               </select>
             </div>
             <div>
-              <label className="text-sm font-medium block">Drink</label>
+              <label className="text-sm font-medium block">6. Do you drink alcohol?</label>
               <select value={form.drinking ?? ''} onChange={(e) => setForm((f) => ({ ...f, drinking: (e.target.value || undefined) as UserProfile['drinking'] }))} className="w-full rounded-2xl border bg-background px-3 py-2.5">
                 <option value="">Not selected</option>
                 <option value="yes">Yes</option>
@@ -151,65 +187,37 @@ export default function EditProfile() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium block">Eating preference</label>
-              <select value={form.eatingPreference ?? ''} onChange={(e) => setForm((f) => ({ ...f, eatingPreference: (e.target.value || undefined) as UserProfile['eatingPreference'] }))} className="w-full rounded-2xl border bg-background px-3 py-2.5">
-                <option value="">Not selected</option>
-                <option value="omnivore">Omnivore</option>
-                <option value="vegetarian">Vegetarian</option>
-                <option value="vegan">Vegan</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-sm font-medium block">Exercise</label>
-              <select value={form.exerciseFrequency ?? ''} onChange={(e) => setForm((f) => ({ ...f, exerciseFrequency: (e.target.value || undefined) as UserProfile['exerciseFrequency'] }))} className="w-full rounded-2xl border bg-background px-3 py-2.5">
-                <option value="">Not selected</option>
-                <option value="never">Never</option>
-                <option value="rarely">Rarely</option>
-                <option value="daily">Daily</option>
-              </select>
-            </div>
-          </div>
+          <label className="text-sm font-medium block">7. What's your diet?</label>
+          <select value={form.diet ?? ''} onChange={(e) => setForm((f) => ({ ...f, diet: (e.target.value || undefined) as UserProfile['diet'] }))} className="w-full rounded-2xl border bg-background px-3 py-2.5">
+            <option value="">Not selected</option>
+            <option value="Veg">Veg</option>
+            <option value="Non-veg">Non-veg</option>
+            <option value="Vegan">Vegan</option>
+          </select>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium block">Sleep habits</label>
-              <select value={form.sleepHabits ?? ''} onChange={(e) => setForm((f) => ({ ...f, sleepHabits: (e.target.value || undefined) as UserProfile['sleepHabits'] }))} className="w-full rounded-2xl border bg-background px-3 py-2.5">
-                <option value="">Not selected</option>
-                <option value="early bird">Early bird</option>
-                <option value="night owl">Night owl</option>
-                <option value="flexible">Flexible</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-sm font-medium block">Wants children</label>
-              <select value={form.wantsChildren ?? ''} onChange={(e) => setForm((f) => ({ ...f, wantsChildren: (e.target.value || undefined) as UserProfile['wantsChildren'] }))} className="w-full rounded-2xl border bg-background px-3 py-2.5">
-                <option value="">Not selected</option>
-                <option value="yes">Yes</option>
-                <option value="no">No</option>
-                <option value="unsure">Unsure</option>
-              </select>
-            </div>
-          </div>
+          <label className="text-sm font-medium block">8. What’s your highest education level?</label>
+          <select value={form.highestEducationLevel ?? ''} onChange={(e) => setForm((f) => ({ ...f, highestEducationLevel: (e.target.value || undefined) as UserProfile['highestEducationLevel'] }))} className="w-full rounded-2xl border bg-background px-3 py-2.5">
+            <option value="">Not selected</option>
+            <option value="High School">High School</option>
+            <option value="Diploma">Diploma</option>
+            <option value="Graduate">Graduate</option>
+            <option value="Postgraduate">Postgraduate</option>
+          </select>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium block">Has children</label>
-              <select value={form.hasChildren ?? ''} onChange={(e) => setForm((f) => ({ ...f, hasChildren: (e.target.value || undefined) as UserProfile['hasChildren'] }))} className="w-full rounded-2xl border bg-background px-3 py-2.5">
-                <option value="">Not selected</option>
-                <option value="yes">Yes</option>
-                <option value="no">No</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-sm font-medium block">Height</label>
-              <input value={form.height ?? ''} onChange={(e) => setForm((f) => ({ ...f, height: e.target.value }))} placeholder="e.g. 170 cm" className="w-full rounded-2xl border bg-background px-3 py-2.5" />
-            </div>
-          </div>
+          <label className="text-sm font-medium block">9. Which college/university did you attend?</label>
+          <input value={form.collegeUniversity ?? ''} onChange={(e) => setForm((f) => ({ ...f, collegeUniversity: e.target.value }))} className="w-full rounded-2xl border bg-background px-3 py-2.5" />
 
-          <label className="text-sm font-medium block">Occupation</label>
-          <input value={form.occupation ?? ''} onChange={(e) => setForm((f) => ({ ...f, occupation: e.target.value }))} className="w-full rounded-2xl border bg-background px-3 py-2.5" />
+          <label className="text-sm font-medium block">10. What is your field of study?</label>
+          <input value={form.fieldOfStudy ?? ''} onChange={(e) => setForm((f) => ({ ...f, fieldOfStudy: e.target.value }))} className="w-full rounded-2xl border bg-background px-3 py-2.5" />
+
+          <label className="text-sm font-medium block">11. What is your current focus?</label>
+          <select value={form.currentFocus ?? ''} onChange={(e) => setForm((f) => ({ ...f, currentFocus: (e.target.value || undefined) as UserProfile['currentFocus'] }))} className="w-full rounded-2xl border bg-background px-3 py-2.5">
+            <option value="">Not selected</option>
+            <option value="Studying">Studying</option>
+            <option value="Job">Job</option>
+            <option value="Business / Startup">Business / Startup</option>
+            <option value="Exploring">Exploring</option>
+          </select>
         </div>
 
         <Button className="w-full h-12 rounded-2xl gradient-coral" disabled={saving} onClick={() => void onSave()}>

@@ -126,7 +126,7 @@ export default function SwipeCard({ user, onSwipeLeft, onSwipeRight, onOpenProfi
             {user.distance != null && <span className="text-xs text-muted-foreground ml-auto">{Math.round(user.distance)} km</span>}
           </div>
           <p className="text-sm text-muted-foreground line-clamp-2">{user.bio}</p>
-          {user.matchScore != null && <p className="text-xs font-semibold text-primary mt-1">{user.matchScore}% match</p>}
+          <p className="text-xs font-semibold text-primary mt-1">Compatibility: {Math.round(user.matchScore ?? 0)}%</p>
         </div>
       </div>
 
