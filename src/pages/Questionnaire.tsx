@@ -94,6 +94,8 @@ export default function Questionnaire() {
       .map(([trait]) => trait);
   }, [liveScores]);
 
+  const personaLabel = useMemo(() => derivePersona(liveScores), [liveScores]);
+
   const canNext = () => {
     if (step <= PERSONALITY_PAGES) {
       const start = (step - 1) * 5;
