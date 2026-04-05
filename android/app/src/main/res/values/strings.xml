@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">EliteSync</string>
+    <string name="title_activity_main">EliteSync</string>
+    <string name="package_name">app.lovable.b0a099ee5a2b4590b2aa3b5247e33bb1</string>
+    <string name="custom_url_scheme">app.lovable.b0a099ee5a2b4590b2aa3b5247e33bb1</string>
+</resources>
