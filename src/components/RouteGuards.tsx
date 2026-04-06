@@ -1,4 +1,4 @@
-import { ReactElement, useEffect, useState } from 'react';
+import { ReactElement, useEffect, useRef, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { getCurrentUserProfile } from '@/lib/store';
@@ -11,16 +11,23 @@ function FullscreenLoader() {
   );
 }
 
+const ONBOARDING_PAGES = ['/questionnaire', '/photos'];
+
 function useUserDestination(shouldCheck: boolean) {
   const [destination, setDestination] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  const checkedOnce = useRef(false);
 
   useEffect(() => {
     if (!shouldCheck) {
       setDestination(null);
       setChecking(false);
+      checkedOnce.current = false;
       return;
     }
+
+    // Only run the check once per auth session to avoid stale-data loops
+    if (checkedOnce.current) return;
 
     let cancelled = false;
     setChecking(true);
@@ -42,7 +49,10 @@ function useUserDestination(shouldCheck: boolean) {
 
         setDestination('/home');
       } finally {
-        if (!cancelled) setChecking(false);
+        if (!cancelled) {
+          setChecking(false);
+          checkedOnce.current = true;
+        }
       }
     };
 
@@ -53,7 +63,11 @@ function useUserDestination(shouldCheck: boolean) {
     };
   }, [shouldCheck]);
 
-  return { destination, checking };
+  const clearDestination = () => {
+    setDestination(null);
+  };
+
+  return { destination, checking, clearDestination };
 }
 
 export function ProtectedRoute({ children }: { children: ReactElement }) {
@@ -64,11 +78,16 @@ export function ProtectedRoute({ children }: { children: ReactElement }) {
   if (loading || checking) return <FullscreenLoader />;
   if (!user) return <Navigate to="/login" replace />;
 
-  if (destination === '/questionnaire' && location.pathname !== '/questionnaire') {
+  // Allow staying on any onboarding page without redirect loops
+  if (ONBOARDING_PAGES.includes(location.pathname)) {
+    return children;
+  }
+
+  if (destination === '/questionnaire') {
     return <Navigate to="/questionnaire" replace />;
   }
 
-  if (destination === '/photos' && location.pathname !== '/photos') {
+  if (destination === '/photos') {
     return <Navigate to="/photos" replace />;
   }
 

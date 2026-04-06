@@ -26,7 +26,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
-import { cosineCompatibility, derivePersona, PersonalityScores, traitAdjustedCompatibility, TraitKey } from '@/lib/scoring';
+import { cosineCompatibility, derivePersona, PersonalityScores, TraitKey } from '@/lib/scoring';
 import { geohashForLocation } from 'geofire-common';
 
 const TRAITS: TraitKey[] = ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism'];
@@ -502,7 +502,6 @@ export interface DiscoverProfile {
   matchingScores?: Partial<Record<TraitKey, number>>;
   persona?: string;
   compatibilityScore: number;
-  cosineScore: number;
 }
 
 export type DiscoverSwipeStatus = {
@@ -763,8 +762,7 @@ async function fetchProfilesFromBackend(uid: string): Promise<DiscoverProfile[]>
         height: String(u.height ?? ''),
         matchingScores: traitScores,
         persona: derivePersona(traitScores as PersonalityScores),
-        compatibilityScore: traitAdjustedCompatibility(meScores as PersonalityScores, traitScores as PersonalityScores),
-        cosineScore: Math.round(cosineCompatibility(meScores as PersonalityScores, traitScores as PersonalityScores)),
+        compatibilityScore: Math.round(cosineCompatibility(meScores as PersonalityScores, traitScores as PersonalityScores)),
       } as DiscoverProfile;
 
       return candidateProfile;
