@@ -607,14 +607,13 @@ function getCompleteTraitScores(raw?: Partial<Record<TraitKey, number>>) {
   return completed;
 }
 
-function resolveDefaultPreferredGender(me: UserProfile) {
-  return me.gender === 'Male' ? 'Female' : me.gender === 'Female' ? 'Male' : 'Everyone';
-}
-
-function matchDefaultPreferredGender(profile: DiscoverProfile, me: UserProfile) {
-  const preferredGender = resolveDefaultPreferredGender(me);
-  if (preferredGender === 'Everyone') return true;
-  return !profile.gender || profile.gender === preferredGender;
+function matchPreferredGender(profile: DiscoverProfile, me: UserProfile) {
+  const interested = me.interestedIn ?? 'Everyone';
+  if (interested === 'Everyone') return true;
+  if (!profile.gender) return true;
+  if (interested === 'Men') return profile.gender === 'Male';
+  if (interested === 'Women') return profile.gender === 'Female';
+  return true;
 }
 
 function withinDistanceRange(profile: DiscoverProfile, me: UserProfile, distanceKm: number) {
@@ -769,7 +768,7 @@ async function fetchProfilesFromBackend(uid: string): Promise<DiscoverProfile[]>
     })
     .filter((profile): profile is DiscoverProfile => Boolean(profile))
     .filter((profile) => profile.age >= 18)
-    .filter((profile) => matchDefaultPreferredGender(profile, me))
+    .filter((profile) => matchPreferredGender(profile, me))
     .filter((profile) => withinDistanceRange(profile, me, filters.distanceKm))
     .filter((profile) => profile.compatibilityScore >= DISCOVER_COMPATIBILITY_MIN);
 
