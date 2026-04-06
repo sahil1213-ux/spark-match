@@ -768,7 +768,7 @@ async function fetchProfilesFromBackend(uid: string): Promise<DiscoverProfile[]>
     })
     .filter((profile): profile is DiscoverProfile => Boolean(profile))
     .filter((profile) => profile.age >= 18)
-    .filter((profile) => matchDefaultPreferredGender(profile, me))
+    .filter((profile) => matchPreferredGender(profile, me))
     .filter((profile) => withinDistanceRange(profile, me, filters.distanceKm))
     .filter((profile) => profile.compatibilityScore >= DISCOVER_COMPATIBILITY_MIN);
 
