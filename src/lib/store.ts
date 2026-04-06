@@ -607,14 +607,13 @@ function getCompleteTraitScores(raw?: Partial<Record<TraitKey, number>>) {
   return completed;
 }
 
-function resolveDefaultPreferredGender(me: UserProfile) {
-  return me.gender === 'Male' ? 'Female' : me.gender === 'Female' ? 'Male' : 'Everyone';
-}
-
-function matchDefaultPreferredGender(profile: DiscoverProfile, me: UserProfile) {
-  const preferredGender = resolveDefaultPreferredGender(me);
-  if (preferredGender === 'Everyone') return true;
-  return !profile.gender || profile.gender === preferredGender;
+function matchPreferredGender(profile: DiscoverProfile, me: UserProfile) {
+  const interested = me.interestedIn ?? 'Everyone';
+  if (interested === 'Everyone') return true;
+  if (!profile.gender) return true;
+  if (interested === 'Men') return profile.gender === 'Male';
+  if (interested === 'Women') return profile.gender === 'Female';
+  return true;
 }
 
 function withinDistanceRange(profile: DiscoverProfile, me: UserProfile, distanceKm: number) {

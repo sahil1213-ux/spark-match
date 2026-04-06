@@ -7,13 +7,6 @@ export type PersonaLabel = 'Explorer' | 'Planner' | 'Social Spark' | 'Heart-led'
 
 export const TRAITS: TraitKey[] = ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism'];
 
-const TRAIT_MATCH_WEIGHTS: Record<TraitKey, number> = {
-  openness: 0.9,
-  conscientiousness: 1.1,
-  extraversion: 1.0,
-  agreeableness: 1.2,
-  neuroticism: 1.3,
-};
 
 export function normalizeTraitScore(rawScore: number) {
   const score = ((rawScore - 3) / 12) * 100;
@@ -57,15 +50,15 @@ function clamp(value: number, min = 0, max = 100) {
 }
 
 export function cosineCompatibility(me: PersonalityScores, candidate: PersonalityScores) {
-  const weightedMe = TRAITS.map((trait) => (me[trait] ?? 0) * TRAIT_MATCH_WEIGHTS[trait]);
-  const weightedCandidate = TRAITS.map((trait) => (candidate[trait] ?? 0) * TRAIT_MATCH_WEIGHTS[trait]);
+  const meVec = TRAITS.map((trait) => me[trait] ?? 0);
+  const candVec = TRAITS.map((trait) => candidate[trait] ?? 0);
 
-  const dot = weightedMe.reduce((sum, value, idx) => sum + value * weightedCandidate[idx], 0);
-  const meMagnitude = Math.sqrt(weightedMe.reduce((sum, value) => sum + value * value, 0));
-  const candidateMagnitude = Math.sqrt(weightedCandidate.reduce((sum, value) => sum + value * value, 0));
+  const dot = meVec.reduce((sum, v, i) => sum + v * candVec[i], 0);
+  const meMag = Math.sqrt(meVec.reduce((sum, v) => sum + v * v, 0));
+  const candMag = Math.sqrt(candVec.reduce((sum, v) => sum + v * v, 0));
 
-  if (meMagnitude === 0 || candidateMagnitude === 0) return 0;
-  return clamp((dot / (meMagnitude * candidateMagnitude)) * 100);
+  if (meMag === 0 || candMag === 0) return 0;
+  return clamp((dot / (meMag * candMag)) * 100);
 }
 
 
