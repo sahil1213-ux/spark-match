@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getCurrentUserId, getCurrentUserProfile, uploadUserPhoto } from '@/lib/store';
+import { advanceOnboarding } from '@/components/RouteGuards';
 import { Button } from '@/components/ui/button';
 
 const MIN_PHOTOS = 2;
@@ -55,7 +56,7 @@ export default function PhotoUpload() {
         </div>
         <p className="text-xs text-muted-foreground mb-6">{photos.length}/{MAX_PHOTOS} uploaded</p>
 
-        <Button disabled={!canContinue} className="w-full gradient-coral" onClick={() => navigate('/home')}>
+        <Button disabled={!canContinue} className="w-full gradient-coral" onClick={() => { advanceOnboarding('/home'); navigate('/home'); }}>
           Continue
         </Button>
       </div>

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { advanceOnboarding } from '@/components/RouteGuards';
 import { getCurrentUserId, getCurrentUserProfile, saveQuestionnaire, UserProfile } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { TraitKey } from '@/lib/scoring';
@@ -137,6 +138,7 @@ export default function Questionnaire() {
       lookingFor,
     });
 
+    advanceOnboarding('/photos');
     navigate('/photos');
   };
 
