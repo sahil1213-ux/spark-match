@@ -13,21 +13,35 @@ function FullscreenLoader() {
 
 const ONBOARDING_PAGES = ['/questionnaire', '/photos'];
 
-function useUserDestination(shouldCheck: boolean) {
-  const [destination, setDestination] = useState<string | null>(null);
+// Module-level cache so destination survives across ProtectedRoute instances
+let cachedDestination: string | null = null;
+let cachedForUid: string | null = null;
+
+function useUserDestination(user: { uid: string } | null, loading: boolean) {
+  const [destination, setDestination] = useState<string | null>(cachedDestination);
   const [checking, setChecking] = useState(false);
-  const checkedOnce = useRef(false);
+  const ran = useRef(false);
+
+  const uid = user?.uid ?? null;
 
   useEffect(() => {
-    if (!shouldCheck) {
+    if (loading || !uid) {
       setDestination(null);
       setChecking(false);
-      checkedOnce.current = false;
+      ran.current = false;
+      cachedDestination = null;
+      cachedForUid = null;
       return;
     }
 
-    // Only run the check once per auth session to avoid stale-data loops
-    if (checkedOnce.current) return;
+    // Use cache if we already checked for this user
+    if (cachedForUid === uid && cachedDestination !== null) {
+      setDestination(cachedDestination);
+      return;
+    }
+
+    if (ran.current) return;
+    ran.current = true;
 
     let cancelled = false;
     setChecking(true);
@@ -37,43 +51,37 @@ function useUserDestination(shouldCheck: boolean) {
         const profile = await getCurrentUserProfile();
         if (cancelled) return;
 
+        let dest = '/home';
         if (!profile || !profile.onboardingCompleted) {
-          setDestination('/questionnaire');
-          return;
+          dest = '/questionnaire';
+        } else if ((profile.photos?.length ?? 0) === 0) {
+          dest = '/photos';
         }
 
-        if ((profile.photos?.length ?? 0) === 0) {
-          setDestination('/photos');
-          return;
-        }
-
-        setDestination('/home');
+        cachedDestination = dest;
+        cachedForUid = uid;
+        setDestination(dest);
       } finally {
-        if (!cancelled) {
-          setChecking(false);
-          checkedOnce.current = true;
-        }
+        if (!cancelled) setChecking(false);
       }
     };
 
     void run();
+    return () => { cancelled = true; };
+  }, [uid, loading]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [shouldCheck]);
+  return { destination, checking };
+}
 
-  const clearDestination = () => {
-    setDestination(null);
-  };
-
-  return { destination, checking, clearDestination };
+/** Call after completing an onboarding step to advance the cached destination */
+export function advanceOnboarding(to: string) {
+  cachedDestination = to;
 }
 
 export function ProtectedRoute({ children }: { children: ReactElement }) {
   const { user, loading } = useAuth();
   const location = useLocation();
-  const { destination, checking } = useUserDestination(Boolean(user) && !loading);
+  const { destination, checking } = useUserDestination(user, loading);
 
   if (loading || checking) return <FullscreenLoader />;
   if (!user) return <Navigate to="/login" replace />;
@@ -83,12 +91,8 @@ export function ProtectedRoute({ children }: { children: ReactElement }) {
     return children;
   }
 
-  if (destination === '/questionnaire') {
-    return <Navigate to="/questionnaire" replace />;
-  }
-
-  if (destination === '/photos') {
-    return <Navigate to="/photos" replace />;
+  if (destination && destination !== '/home' && destination !== location.pathname) {
+    return <Navigate to={destination} replace />;
   }
 
   return children;
@@ -96,7 +100,7 @@ export function ProtectedRoute({ children }: { children: ReactElement }) {
 
 export function PublicOnlyRoute({ children }: { children: ReactElement }) {
   const { user, loading } = useAuth();
-  const { destination, checking } = useUserDestination(Boolean(user) && !loading);
+  const { destination, checking } = useUserDestination(user, loading);
 
   if (loading || checking) return <FullscreenLoader />;
   if (user) return <Navigate to={destination ?? '/home'} replace />;
