@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getCurrentUserId, getCurrentUserProfile, uploadUserPhoto } from '@/lib/store';
+import { getCurrentUserId, getCurrentUserProfile, saveUserPhotos } from '@/lib/store';
 import { advanceOnboarding } from '@/components/RouteGuards';
 import { Button } from '@/components/ui/button';
+import { clearPhotoDrafts, convertFilesToDataUrls, getPhotoDrafts, savePhotoDrafts } from '@/lib/photoDrafts';
 
 const MIN_PHOTOS = 2;
 const MAX_PHOTOS = 5;
@@ -11,12 +12,23 @@ export default function PhotoUpload() {
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
   const [photos, setPhotos] = useState<string[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
+      const uid = getCurrentUserId();
       const profile = await getCurrentUserProfile();
       if (!profile) return;
-      setPhotos((profile.photos ?? []).slice(0, MAX_PHOTOS));
+
+      const draftPhotos = uid ? await getPhotoDrafts(uid) : [];
+      const nextPhotos = (draftPhotos.length > 0 ? draftPhotos : profile.photos ?? []).slice(0, MAX_PHOTOS);
+
+      setPhotos(nextPhotos);
+
+      if (uid && draftPhotos.length === 0 && nextPhotos.length > 0) {
+        await savePhotoDrafts(uid, nextPhotos);
+      }
     };
     void load();
   }, []);
@@ -27,12 +39,35 @@ export default function PhotoUpload() {
     const uid = getCurrentUserId();
     if (!uid) return;
 
-    let currentCount = photos.length;
-    for (const file of Array.from(files)) {
-      if (currentCount >= MAX_PHOTOS) break;
-      const url = await uploadUserPhoto(uid, file);
-      currentCount += 1;
-      setPhotos((prev) => [...prev, url].slice(0, MAX_PHOTOS));
+    setError(null);
+
+    const remainingSlots = Math.max(0, MAX_PHOTOS - photos.length);
+    const selectedFiles = Array.from(files).slice(0, remainingSlots);
+    const draftUrls = await convertFilesToDataUrls(selectedFiles);
+    const nextPhotos = [...photos, ...draftUrls].slice(0, MAX_PHOTOS);
+
+    setPhotos(nextPhotos);
+    await savePhotoDrafts(uid, nextPhotos);
+    e.target.value = '';
+  };
+
+  const handleContinue = async () => {
+    const uid = getCurrentUserId();
+    if (!uid || !canContinue || isSaving) return;
+
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      await saveUserPhotos(uid, photos);
+      await clearPhotoDrafts(uid);
+      advanceOnboarding('/home');
+      navigate('/home');
+    } catch (err) {
+      console.error('Failed to save photos', err);
+      setError('Unable to save your photos right now. Please try again.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -51,13 +86,14 @@ export default function PhotoUpload() {
 
         <div className="grid grid-cols-3 gap-2 mb-3">
           {photos.map((photo, index) => (
-            <img key={index} src={photo} className="w-full aspect-[3/4] object-cover rounded-xl" />
+            <img key={index} src={photo} alt={`Uploaded profile photo ${index + 1}`} className="w-full aspect-[3/4] object-cover rounded-xl" loading="lazy" />
           ))}
         </div>
         <p className="text-xs text-muted-foreground mb-6">{photos.length}/{MAX_PHOTOS} uploaded</p>
+        {error ? <p className="text-xs text-destructive mb-4">{error}</p> : null}
 
-        <Button disabled={!canContinue} className="w-full gradient-coral" onClick={() => { advanceOnboarding('/home'); navigate('/home'); }}>
-          Continue
+        <Button disabled={!canContinue || isSaving} className="w-full gradient-coral" onClick={handleContinue}>
+          {isSaving ? 'Saving photos...' : 'Continue'}
         </Button>
       </div>
     </div>
