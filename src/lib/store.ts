@@ -483,7 +483,7 @@ export async function swipeUser(targetId: string, direction: 'left' | 'right') {
 
 
 const DISCOVER_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const DISCOVER_COMPATIBILITY_MIN = 75;
+
 const DISCOVER_SWIPE_LIMIT = 15;
 
 export interface DiscoverProfile {
