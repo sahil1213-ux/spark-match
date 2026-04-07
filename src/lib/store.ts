@@ -483,7 +483,7 @@ export async function swipeUser(targetId: string, direction: 'left' | 'right') {
 
 
 const DISCOVER_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const DISCOVER_COMPATIBILITY_MIN = 75;
+
 const DISCOVER_SWIPE_LIMIT = 15;
 
 export interface DiscoverProfile {
@@ -777,7 +777,7 @@ async function fetchProfilesFromBackend(uid: string): Promise<DiscoverProfile[]>
     .filter((profile) => profile.age >= 18)
     .filter((profile) => matchPreferredGender(profile, me))
     .filter((profile) => withinDistanceRange(profile, me, filters.distanceKm))
-    .filter((profile) => profile.compatibilityScore >= DISCOVER_COMPATIBILITY_MIN);
+    ;
 
   const sortedProfiles = sortByCompatibilityDesc(scored);
   setStoredDiscoverProfiles(uid, sortedProfiles);
