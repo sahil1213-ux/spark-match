@@ -1022,6 +1022,11 @@ export async function updateUserProfileDetails(
     Pick<
       UserProfile,
       | 'bio'
+      | 'height'
+      | 'city'
+      | 'relationshipStatus'
+      | 'lookingFor'
+      | 'photos'
       | 'languages'
       | 'weekendPreference'
       | 'fitnessImportance'
