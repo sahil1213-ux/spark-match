@@ -32,6 +32,7 @@ import { geohashForLocation } from 'geofire-common';
 const TRAITS: TraitKey[] = ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism'];
 const MAX_MATCHES = 25;
 const TRAIT_THRESHOLD = 80;
+const MAX_PROFILE_PHOTOS = 5;
 
 // ── Types ──
 
@@ -202,6 +203,12 @@ export async function saveProfileBio(userId: string, bio: string) {
   await updateDoc(doc(db, 'users', userId), { bio });
 }
 
+export async function saveUserPhotos(userId: string, photos: string[]) {
+  const nextPhotos = photos.filter(Boolean).slice(0, MAX_PROFILE_PHOTOS);
+  await updateDoc(doc(db, 'users', userId), { photos: nextPhotos });
+  return nextPhotos;
+}
+
 export async function uploadUserPhoto(userId: string, file: File) {
   const asDataUrl = await new Promise<string>((resolve) => {
     const reader = new FileReader();
@@ -211,7 +218,7 @@ export async function uploadUserPhoto(userId: string, file: File) {
   const userRef = doc(db, 'users', userId);
   const snapshot = await getDoc(userRef);
   const currentPhotos = (snapshot.data()?.photos ?? []) as string[];
-  await updateDoc(userRef, { photos: [...currentPhotos, asDataUrl].slice(0, 5) });
+  await saveUserPhotos(userId, [...currentPhotos, asDataUrl]);
   return asDataUrl;
 }
 
