@@ -72,6 +72,19 @@ function compressImage(dataUrl: string, maxDim = 800, quality = 0.6): Promise<st
   });
 }
 
+export async function getPhotoDrafts(uid: string) {
+  const record = await withStore<IDBValidKey | PhotoDraftRecord | undefined>('readonly', (store) => store.get(uid));
+  return typeof record === 'object' && record && 'photos' in record && Array.isArray(record.photos) ? record.photos : [];
+}
+
+export async function savePhotoDrafts(uid: string, photos: string[]) {
+  await withStore<IDBValidKey>('readwrite', (store) => store.put({ uid, photos, updatedAt: Date.now() } satisfies PhotoDraftRecord));
+}
+
+export async function clearPhotoDrafts(uid: string) {
+  await withStore<IDBValidKey>('readwrite', (store) => store.delete(uid));
+}
+
 export async function convertFilesToDataUrls(files: File[]) {
   const rawUrls = await Promise.all(files.map((file) => readFileAsDataUrl(file)));
   return Promise.all(rawUrls.map((url) => compressImage(url)));
