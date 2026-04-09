@@ -4,7 +4,7 @@ import { ChevronLeft, Plus, X as XIcon } from 'lucide-react';
 import BottomNav from '@/components/BottomNav';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { getCurrentUserProfile, updateUserProfileDetails, UserProfile } from '@/lib/store';
+import { getCurrentUserProfile, updateUserProfileDetails, saveUserPhotos, UserProfile } from '@/lib/store';
 import { toast } from 'sonner';
 
 type EditForm = {
@@ -121,7 +121,10 @@ export default function EditProfile() {
     if (!user || !form) return;
     setSaving(true);
     try {
-      await updateUserProfileDetails(user.id, form);
+      // Upload any new base64 photos to Firebase Storage first
+      const uploadedPhotos = await saveUserPhotos(user.id, form.photos);
+      const { photos, ...rest } = form;
+      await updateUserProfileDetails(user.id, { ...rest, photos: uploadedPhotos });
       toast.success('Profile updated');
       navigate('/profile');
     } catch (error) {

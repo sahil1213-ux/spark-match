@@ -25,7 +25,8 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
+import { auth, db, storage } from '@/lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { cosineCompatibility, derivePersona, PersonalityScores, TraitKey } from '@/lib/scoring';
 import { geohashForLocation } from 'geofire-common';
 
@@ -203,23 +204,51 @@ export async function saveProfileBio(userId: string, bio: string) {
   await updateDoc(doc(db, 'users', userId), { bio });
 }
 
-export async function saveUserPhotos(userId: string, photos: string[]) {
-  const nextPhotos = photos.filter(Boolean).slice(0, MAX_PROFILE_PHOTOS);
-  await updateDoc(doc(db, 'users', userId), { photos: nextPhotos });
-  return nextPhotos;
+/**
+ * Convert a base64 data-URL to a Blob for uploading.
+ */
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, base64] = dataUrl.split(',');
+  const mime = header.match(/:(.*?);/)?.[1] ?? 'image/jpeg';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
 }
 
-export async function uploadUserPhoto(userId: string, file: File) {
-  const asDataUrl = await new Promise<string>((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.readAsDataURL(file);
-  });
-  const userRef = doc(db, 'users', userId);
-  const snapshot = await getDoc(userRef);
-  const currentPhotos = (snapshot.data()?.photos ?? []) as string[];
-  await saveUserPhotos(userId, [...currentPhotos, asDataUrl]);
-  return asDataUrl;
+function isDataUrl(s: string) {
+  return s.startsWith('data:');
+}
+
+/**
+ * Upload a single base64 photo to Firebase Storage and return the download URL.
+ */
+async function uploadPhotoToStorage(userId: string, dataUrl: string, index: number): Promise<string> {
+  const blob = dataUrlToBlob(dataUrl);
+  const ext = blob.type === 'image/png' ? 'png' : 'jpg';
+  const storageRef = ref(storage, `users/${userId}/photos/${Date.now()}_${index}.${ext}`);
+  await uploadBytes(storageRef, blob);
+  return getDownloadURL(storageRef);
+}
+
+/**
+ * Upload photos: base64 data-URLs are sent to Firebase Storage; existing URLs are kept as-is.
+ * Stores only download URLs in Firestore.
+ */
+export async function saveUserPhotos(userId: string, photos: string[]) {
+  const nextPhotos = photos.filter(Boolean).slice(0, MAX_PROFILE_PHOTOS);
+
+  const uploadedUrls = await Promise.all(
+    nextPhotos.map(async (photo, i) => {
+      if (isDataUrl(photo)) {
+        return uploadPhotoToStorage(userId, photo, i);
+      }
+      return photo; // already a download URL
+    }),
+  );
+
+  await updateDoc(doc(db, 'users', userId), { photos: uploadedUrls });
+  return uploadedUrls;
 }
 
 // ── Location ──
