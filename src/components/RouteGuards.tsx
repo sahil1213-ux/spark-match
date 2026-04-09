@@ -74,14 +74,18 @@ function useUserDestination(user: { uid: string } | null, loading: boolean) {
 }
 
 /** Call after completing an onboarding step to advance the cached destination */
-export function advanceOnboarding(to: string) {
+export function advanceOnboarding(to: string, uid?: string | null) {
   cachedDestination = to;
+  if (uid) {
+    cachedForUid = uid;
+  }
 }
 
 export function ProtectedRoute({ children }: { children: ReactElement }) {
   const { user, loading } = useAuth();
   const location = useLocation();
   const { destination, checking } = useUserDestination(user, loading);
+  const onboardingTransition = Boolean((location.state as { onboardingTransition?: boolean } | null)?.onboardingTransition);
 
   if (loading || checking) return <FullscreenLoader />;
   if (!user) return <Navigate to="/login" replace />;
@@ -92,6 +96,9 @@ export function ProtectedRoute({ children }: { children: ReactElement }) {
   }
 
   if (destination && destination !== '/home' && destination !== location.pathname) {
+    if (location.pathname === '/home' && onboardingTransition) {
+      return children;
+    }
     return <Navigate to={destination} replace />;
   }
 
