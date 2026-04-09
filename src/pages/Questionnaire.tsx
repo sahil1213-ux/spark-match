@@ -138,8 +138,8 @@ export default function Questionnaire() {
       lookingFor,
     });
 
-    advanceOnboarding('/photos');
-    navigate('/photos');
+    advanceOnboarding('/photos', uid);
+    navigate('/photos', { replace: true, state: { onboardingTransition: true } });
   };
 
   const next = () => {

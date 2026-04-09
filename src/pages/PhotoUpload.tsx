@@ -61,8 +61,8 @@ export default function PhotoUpload() {
     try {
       await saveUserPhotos(uid, photos);
       await clearPhotoDrafts(uid);
-      advanceOnboarding('/home');
-      navigate('/home');
+      advanceOnboarding('/home', uid);
+      navigate('/home', { replace: true, state: { onboardingTransition: true } });
     } catch (err) {
       console.error('Failed to save photos', err);
       setError('Unable to save your photos right now. Please try again.');
