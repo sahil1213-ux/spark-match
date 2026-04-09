@@ -46,6 +46,32 @@ function readFileAsDataUrl(file: File) {
   });
 }
 
+/**
+ * Compress an image data-URL via Canvas (max 800px, JPEG quality 0.6).
+ */
+function compressImage(dataUrl: string, maxDim = 800, quality = 0.6): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        const ratio = Math.min(maxDim / width, maxDim / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject(new Error('Canvas not supported'));
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => reject(new Error('Failed to compress image'));
+    img.src = dataUrl;
+  });
+}
+
 export async function getPhotoDrafts(uid: string) {
   const record = await withStore<IDBValidKey | PhotoDraftRecord | undefined>('readonly', (store) => store.get(uid));
   return typeof record === 'object' && record && 'photos' in record && Array.isArray(record.photos) ? record.photos : [];
@@ -60,5 +86,6 @@ export async function clearPhotoDrafts(uid: string) {
 }
 
 export async function convertFilesToDataUrls(files: File[]) {
-  return Promise.all(files.map((file) => readFileAsDataUrl(file)));
+  const rawUrls = await Promise.all(files.map((file) => readFileAsDataUrl(file)));
+  return Promise.all(rawUrls.map((url) => compressImage(url)));
 }

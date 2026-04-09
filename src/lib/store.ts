@@ -25,8 +25,7 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { auth, db, storage } from '@/lib/firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { auth, db } from '@/lib/firebase';
 import { cosineCompatibility, derivePersona, PersonalityScores, TraitKey } from '@/lib/scoring';
 import { geohashForLocation } from 'geofire-common';
 
@@ -205,15 +204,30 @@ export async function saveProfileBio(userId: string, bio: string) {
 }
 
 /**
- * Convert a base64 data-URL to a Blob for uploading.
+ * Compress a base64 data-URL image using Canvas.
+ * Resizes to max 800px on longest side, JPEG quality 0.6 → typically 50-150KB.
  */
-function dataUrlToBlob(dataUrl: string): Blob {
-  const [header, base64] = dataUrl.split(',');
-  const mime = header.match(/:(.*?);/)?.[1] ?? 'image/jpeg';
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
+function compressDataUrl(dataUrl: string, maxDim = 800, quality = 0.6): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        const ratio = Math.min(maxDim / width, maxDim / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject(new Error('Canvas not supported'));
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => reject(new Error('Failed to load image for compression'));
+    img.src = dataUrl;
+  });
 }
 
 function isDataUrl(s: string) {
@@ -221,34 +235,22 @@ function isDataUrl(s: string) {
 }
 
 /**
- * Upload a single base64 photo to Firebase Storage and return the download URL.
- */
-async function uploadPhotoToStorage(userId: string, dataUrl: string, index: number): Promise<string> {
-  const blob = dataUrlToBlob(dataUrl);
-  const ext = blob.type === 'image/png' ? 'png' : 'jpg';
-  const storageRef = ref(storage, `users/${userId}/photos/${Date.now()}_${index}.${ext}`);
-  await uploadBytes(storageRef, blob);
-  return getDownloadURL(storageRef);
-}
-
-/**
- * Upload photos: base64 data-URLs are sent to Firebase Storage; existing URLs are kept as-is.
- * Stores only download URLs in Firestore.
+ * Compress new photos and store as base64 data-URLs directly in Firestore.
  */
 export async function saveUserPhotos(userId: string, photos: string[]) {
   const nextPhotos = photos.filter(Boolean).slice(0, MAX_PROFILE_PHOTOS);
 
-  const uploadedUrls = await Promise.all(
-    nextPhotos.map(async (photo, i) => {
+  const compressed = await Promise.all(
+    nextPhotos.map(async (photo) => {
       if (isDataUrl(photo)) {
-        return uploadPhotoToStorage(userId, photo, i);
+        return compressDataUrl(photo);
       }
-      return photo; // already a download URL
+      return photo; // already stored
     }),
   );
 
-  await updateDoc(doc(db, 'users', userId), { photos: uploadedUrls });
-  return uploadedUrls;
+  await updateDoc(doc(db, 'users', userId), { photos: compressed });
+  return compressed;
 }
 
 // ── Location ──
