@@ -90,6 +90,8 @@ export interface MatchResult {
   distance?: number;
   distanceMeters?: number;
   matchScore: number;
+  persona?: string;
+  matchingScores?: Partial<Record<TraitKey, number>>;
 }
 
 export interface Filters {
@@ -825,6 +827,8 @@ function toMatchResult(profile: DiscoverProfile): MatchResult {
     bio: profile.bio ?? '',
     photos: profile.photos,
     matchScore: profile.compatibilityScore,
+    persona: profile.persona,
+    matchingScores: profile.matchingScores,
   };
 }
 
