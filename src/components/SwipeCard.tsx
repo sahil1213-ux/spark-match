@@ -3,20 +3,20 @@ import { Heart, X } from 'lucide-react';
 import { MatchResult } from '@/lib/store';
 import { TraitKey, TRAITS, PersonalityScores } from '@/lib/scoring';
 
-const TRAIT_LABELS: Record<TraitKey, string> = {
-  openness: 'creative & curious',
-  conscientiousness: 'organized & disciplined',
-  extraversion: 'outgoing & energetic',
-  agreeableness: 'warm & compassionate',
-  neuroticism: 'deeply feeling & sensitive',
+const TRAIT_LIKES: Record<TraitKey, string[]> = {
+  openness: ['explore new ideas', 'try new experiences', 'think outside the box'],
+  conscientiousness: ['stay focused on goals', 'keep things organized', 'plan ahead'],
+  extraversion: ['meet new people', 'be the life of the party', 'stay socially active'],
+  agreeableness: ['help others', 'build deep connections', 'keep the peace'],
+  neuroticism: ['reflect deeply', 'stay emotionally aware', 'care intensely'],
 };
 
-const COMPLEMENT_LABELS: Record<TraitKey, string> = {
-  openness: 'curious and adventurous',
-  conscientiousness: 'reliable and goal-oriented',
-  extraversion: 'social and lively',
-  agreeableness: 'kind and empathetic',
-  neuroticism: 'emotionally attuned and supportive',
+const MATCH_PHRASES: Record<TraitKey, string> = {
+  openness: 'someone adventurous and open-minded',
+  conscientiousness: 'someone reliable and driven',
+  extraversion: 'someone outgoing and energetic',
+  agreeableness: 'someone warm and empathetic',
+  neuroticism: 'someone patient and understanding',
 };
 
 function getPersonalityInsights(scores?: Partial<Record<TraitKey, number>>, persona?: string) {
@@ -26,24 +26,20 @@ function getPersonalityInsights(scores?: Partial<Record<TraitKey, number>>, pers
     .filter((t) => scores[t] != null)
     .sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0));
 
-  if (ranked.length === 0) return [];
+  if (ranked.length < 2) return [];
 
   const top = ranked[0];
   const second = ranked[1];
   const lines: string[] = [];
 
-  // Line 1: Who they are
-  const personaLabel = persona ?? 'Balanced';
-  lines.push(`${personaLabel} personality — ${TRAIT_LABELS[top]}`);
+  // Bio-like line combining top two traits
+  const likes1 = TRAIT_LIKES[top][0];
+  const likes2 = TRAIT_LIKES[second][1] ?? TRAIT_LIKES[second][0];
+  const likes3 = TRAIT_LIKES[top][2] ?? TRAIT_LIKES[top][1];
+  lines.push(`Loves to ${likes1}, ${likes2}, and ${likes3}`);
 
-  // Line 2: Their blend
-  if (second) {
-    lines.push(`Also ${TRAIT_LABELS[second]} at heart`);
-  }
-
-  // Line 3: Best compatible with
-  // Complement: similar dominant trait works well
-  lines.push(`Best match with someone ${COMPLEMENT_LABELS[top]}`);
+  // Compatibility line
+  lines.push(`Pairs best with ${MATCH_PHRASES[top]}`);
 
   return lines;
 }
