@@ -1,6 +1,52 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useMemo } from 'react';
 import { Heart, X } from 'lucide-react';
 import { MatchResult } from '@/lib/store';
+import { TraitKey, TRAITS, PersonalityScores } from '@/lib/scoring';
+
+const TRAIT_LABELS: Record<TraitKey, string> = {
+  openness: 'creative & curious',
+  conscientiousness: 'organized & disciplined',
+  extraversion: 'outgoing & energetic',
+  agreeableness: 'warm & compassionate',
+  neuroticism: 'deeply feeling & sensitive',
+};
+
+const COMPLEMENT_LABELS: Record<TraitKey, string> = {
+  openness: 'curious and adventurous',
+  conscientiousness: 'reliable and goal-oriented',
+  extraversion: 'social and lively',
+  agreeableness: 'kind and empathetic',
+  neuroticism: 'emotionally attuned and supportive',
+};
+
+function getPersonalityInsights(scores?: Partial<Record<TraitKey, number>>, persona?: string) {
+  if (!scores) return [];
+
+  const ranked = [...TRAITS]
+    .filter((t) => scores[t] != null)
+    .sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0));
+
+  if (ranked.length === 0) return [];
+
+  const top = ranked[0];
+  const second = ranked[1];
+  const lines: string[] = [];
+
+  // Line 1: Who they are
+  const personaLabel = persona ?? 'Balanced';
+  lines.push(`${personaLabel} personality — ${TRAIT_LABELS[top]}`);
+
+  // Line 2: Their blend
+  if (second) {
+    lines.push(`Also ${TRAIT_LABELS[second]} at heart`);
+  }
+
+  // Line 3: Best compatible with
+  // Complement: similar dominant trait works well
+  lines.push(`Best match with someone ${COMPLEMENT_LABELS[top]}`);
+
+  return lines;
+}
 
 interface SwipeCardProps {
   user: MatchResult;
@@ -19,6 +65,10 @@ export default function SwipeCard({ user, onSwipeLeft, onSwipeRight, onOpenProfi
   const isHorizontal = useRef<boolean | null>(null);
 
   const photos = user.photos ?? [];
+  const insights = useMemo(
+    () => getPersonalityInsights(user.matchingScores, user.persona),
+    [user.matchingScores, user.persona],
+  );
 
   const handleStart = (clientX: number, clientY: number) => {
     startX.current = clientX;
@@ -92,7 +142,7 @@ export default function SwipeCard({ user, onSwipeLeft, onSwipeRight, onOpenProfi
           </div>
         )}
 
-        <div className="relative w-full h-[65%] bg-secondary">
+        <div className="relative w-full h-[55%] bg-secondary">
           {photos.length > 0 ? (
             <img src={photos[photoIdx]} alt={user.name} className="w-full h-full object-cover" draggable={false} />
           ) : (
@@ -119,14 +169,23 @@ export default function SwipeCard({ user, onSwipeLeft, onSwipeRight, onOpenProfi
           )}
         </div>
 
-        <div className="p-5 flex flex-col gap-2">
+        <div className="p-4 flex flex-col gap-1.5">
           <div className="flex items-baseline gap-2">
             <h2 className="text-2xl font-heading font-bold text-card-foreground">{user.name}</h2>
             <span className="text-lg text-muted-foreground">{user.age}</span>
             {user.distance != null && <span className="text-xs text-muted-foreground ml-auto">{Math.round(user.distance)} km</span>}
           </div>
-          <p className="text-sm text-muted-foreground line-clamp-2">{user.bio}</p>
-          <p className="text-xs font-semibold text-primary mt-1">Compatibility: {Math.round(user.matchScore ?? 0)}%</p>
+          <p className="text-xs font-semibold text-primary">Compatibility: {Math.round(user.matchScore ?? 0)}%</p>
+
+          {insights.length > 0 && (
+            <div className="mt-1 space-y-0.5">
+              {insights.map((line, i) => (
+                <p key={i} className="text-[11px] leading-tight text-muted-foreground italic">
+                  {i === 0 ? '✨ ' : i === 2 ? '💕 ' : '🎯 '}{line}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
