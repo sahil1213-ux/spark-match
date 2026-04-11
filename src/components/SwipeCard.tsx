@@ -47,9 +47,9 @@ export default function SwipeCard({ user, onSwipeLeft, onSwipeRight, onOpenProfi
   const isHorizontal = useRef<boolean | null>(null);
 
   const photos = user.photos ?? [];
-  const insights = useMemo(
-    () => getPersonalityInsights(user.matchingScores, user.persona),
-    [user.matchingScores, user.persona],
+  const bio = useMemo(
+    () => getPersonalityBio(user.matchingScores),
+    [user.matchingScores],
   );
 
   const handleStart = (clientX: number, clientY: number) => {
