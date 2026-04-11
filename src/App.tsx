@@ -18,6 +18,7 @@ import Filters from "./pages/Filters";
 import Install from "./pages/Install";
 import NotFound from "./pages/NotFound";
 import { AuthProvider } from "./context/AuthContext";
+import { OnboardingProvider } from "./context/OnboardingContext";
 import { ProtectedRoute, PublicOnlyRoute } from "./components/RouteGuards";
 import { firebaseConfigError } from "./lib/firebase";
 
@@ -49,28 +50,30 @@ const App = () => {
   return (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
-            <Route path="/signup" element={<PublicOnlyRoute><Signup /></PublicOnlyRoute>} />
-            <Route path="/questionnaire" element={<ProtectedRoute><Questionnaire /></ProtectedRoute>} />
-            <Route path="/photos" element={<ProtectedRoute><PhotoUpload /></ProtectedRoute>} />
-            <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
-            <Route path="/discover/:profileId" element={<ProtectedRoute><DiscoverProfilePage /></ProtectedRoute>} />
-            <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-            <Route path="/profile/edit" element={<ProtectedRoute><EditProfile /></ProtectedRoute>} />
-            <Route path="/chats" element={<ProtectedRoute><ChatList /></ProtectedRoute>} />
-            <Route path="/chat/:userId" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
-            <Route path="/filters" element={<ProtectedRoute><Filters /></ProtectedRoute>} />
-            <Route path="/install" element={<Install />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+      <OnboardingProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
+              <Route path="/signup" element={<PublicOnlyRoute><Signup /></PublicOnlyRoute>} />
+              <Route path="/questionnaire" element={<ProtectedRoute><Questionnaire /></ProtectedRoute>} />
+              <Route path="/photos" element={<ProtectedRoute><PhotoUpload /></ProtectedRoute>} />
+              <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+              <Route path="/discover/:profileId" element={<ProtectedRoute><DiscoverProfilePage /></ProtectedRoute>} />
+              <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+              <Route path="/profile/edit" element={<ProtectedRoute><EditProfile /></ProtectedRoute>} />
+              <Route path="/chats" element={<ProtectedRoute><ChatList /></ProtectedRoute>} />
+              <Route path="/chat/:userId" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+              <Route path="/filters" element={<ProtectedRoute><Filters /></ProtectedRoute>} />
+              <Route path="/install" element={<Install />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </OnboardingProvider>
     </AuthProvider>
   </QueryClientProvider>
   );

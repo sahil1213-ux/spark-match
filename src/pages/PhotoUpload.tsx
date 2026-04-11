@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useOnboarding } from '@/context/OnboardingContext';
 import { getCurrentUserId, getCurrentUserProfile, saveUserPhotos } from '@/lib/store';
-import { advanceOnboarding } from '@/components/RouteGuards';
 import { Button } from '@/components/ui/button';
 import { clearPhotoDrafts, convertFilesToDataUrls, getPhotoDrafts, savePhotoDrafts } from '@/lib/photoDrafts';
 
@@ -10,6 +10,7 @@ const MAX_PHOTOS = 5;
 
 export default function PhotoUpload() {
   const navigate = useNavigate();
+  const { advance } = useOnboarding();
   const fileRef = useRef<HTMLInputElement>(null);
   const [photos, setPhotos] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -61,7 +62,7 @@ export default function PhotoUpload() {
     try {
       await saveUserPhotos(uid, photos);
       await clearPhotoDrafts(uid);
-      advanceOnboarding('/home', uid);
+      advance('/home');
       navigate('/home', { replace: true, state: { onboardingTransition: true } });
     } catch (err) {
       console.error('Failed to save photos', err);
