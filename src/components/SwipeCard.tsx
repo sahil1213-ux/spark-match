@@ -3,45 +3,31 @@ import { Heart, X } from 'lucide-react';
 import { MatchResult } from '@/lib/store';
 import { TraitKey, TRAITS, PersonalityScores } from '@/lib/scoring';
 
-const TRAIT_LIKES: Record<TraitKey, string[]> = {
-  openness: ['explore new ideas', 'try new experiences', 'think outside the box'],
-  conscientiousness: ['stay focused on goals', 'keep things organized', 'plan ahead'],
-  extraversion: ['meet new people', 'be the life of the party', 'stay socially active'],
-  agreeableness: ['help others', 'build deep connections', 'keep the peace'],
-  neuroticism: ['reflect deeply', 'stay emotionally aware', 'care intensely'],
+const TRAIT_BIOS: Record<TraitKey, string[]> = {
+  openness: ['loves trying new things', 'enjoys creative ideas', 'always up for an adventure'],
+  conscientiousness: ['stays on top of their goals', 'likes keeping things neat', 'plans everything ahead'],
+  extraversion: ['loves hanging out with people', 'enjoys big social events', 'always ready to chat'],
+  agreeableness: ['cares a lot about others', 'loves helping people out', 'always keeps things friendly'],
+  neuroticism: ['thinks deeply about things', 'very in touch with feelings', 'cares a lot about details'],
 };
 
-const MATCH_PHRASES: Record<TraitKey, string> = {
-  openness: 'someone adventurous and open-minded',
-  conscientiousness: 'someone reliable and driven',
-  extraversion: 'someone outgoing and energetic',
-  agreeableness: 'someone warm and empathetic',
-  neuroticism: 'someone patient and understanding',
-};
-
-function getPersonalityInsights(scores?: Partial<Record<TraitKey, number>>, persona?: string) {
-  if (!scores) return [];
+function getPersonalityBio(scores?: Partial<Record<TraitKey, number>>) {
+  if (!scores) return null;
 
   const ranked = [...TRAITS]
     .filter((t) => scores[t] != null)
     .sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0));
 
-  if (ranked.length < 2) return [];
+  if (ranked.length < 2) return null;
 
   const top = ranked[0];
   const second = ranked[1];
-  const lines: string[] = [];
 
-  // Bio-like line combining top two traits
-  const likes1 = TRAIT_LIKES[top][0];
-  const likes2 = TRAIT_LIKES[second][1] ?? TRAIT_LIKES[second][0];
-  const likes3 = TRAIT_LIKES[top][2] ?? TRAIT_LIKES[top][1];
-  lines.push(`Loves to ${likes1}, ${likes2}, and ${likes3}`);
+  const a = TRAIT_BIOS[top][0];
+  const b = TRAIT_BIOS[second][1] ?? TRAIT_BIOS[second][0];
+  const c = TRAIT_BIOS[top][2] ?? TRAIT_BIOS[top][1];
 
-  // Compatibility line
-  lines.push(`Pairs best with ${MATCH_PHRASES[top]}`);
-
-  return lines;
+  return `${a}, ${b}, and ${c}`;
 }
 
 interface SwipeCardProps {
