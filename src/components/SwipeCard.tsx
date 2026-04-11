@@ -159,14 +159,10 @@ export default function SwipeCard({ user, onSwipeLeft, onSwipeRight, onOpenProfi
           </div>
           <p className="text-xs font-semibold text-primary">Compatibility: {Math.round(user.matchScore ?? 0)}%</p>
 
-          {insights.length > 0 && (
-            <div className="mt-1 space-y-0.5">
-              {insights.map((line, i) => (
-                <p key={i} className="text-[11px] leading-tight text-muted-foreground italic">
-                  {i === 0 ? '✨ ' : i === 2 ? '💕 ' : '🎯 '}{line}
-                </p>
-              ))}
-            </div>
+          {bio && (
+            <p className="mt-1 text-[11px] leading-tight text-muted-foreground italic">
+              ✨ {user.name.split(' ')[0]} {bio}
+            </p>
           )}
         </div>
       </div>
