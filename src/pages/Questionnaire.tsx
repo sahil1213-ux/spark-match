@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { advanceOnboarding } from '@/components/RouteGuards';
+import { useOnboarding } from '@/context/OnboardingContext';
 import { getCurrentUserId, getCurrentUserProfile, saveQuestionnaire, UserProfile } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { TraitKey } from '@/lib/scoring';
@@ -78,6 +78,7 @@ function relationGoalFromLookingFor(lookingFor: UserProfile['lookingFor']) {
 
 export default function Questionnaire() {
   const navigate = useNavigate();
+  const { advance } = useOnboarding();
   const [step, setStep] = useState(1);
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [bio, setBio] = useState('');
@@ -138,7 +139,7 @@ export default function Questionnaire() {
       lookingFor,
     });
 
-    advanceOnboarding('/photos', uid);
+    advance('/photos');
     navigate('/photos', { replace: true, state: { onboardingTransition: true } });
   };
 
