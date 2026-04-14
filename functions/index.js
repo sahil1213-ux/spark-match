@@ -1,7 +1,14 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
+const { defineString } = require('firebase-functions/params');
 const admin = require('firebase-admin');
 const geofire = require('geofire-common');
+const nodemailer = require('nodemailer');
+
+const smtpEmail = defineString('SMTP_EMAIL', { default: '' });
+const smtpPassword = defineString('SMTP_PASSWORD', { default: '' });
+const smtpHost = defineString('SMTP_HOST', { default: 'smtp.gmail.com' });
+const smtpPort = defineString('SMTP_PORT', { default: '587' });
 
 admin.initializeApp();
 const db = admin.firestore();
