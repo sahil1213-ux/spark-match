@@ -4,6 +4,7 @@ import { getCurrentUserId, signupUser, updateUserLocation } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ArrowLeft, CheckCircle2 } from 'lucide-react';
+import EmailOtpDialog from '@/components/EmailOtpDialog';
 
 type Identity = 'Male' | 'Female' | 'Non-binary' | 'Prefer not to say';
 type InterestedIn = 'Men' | 'Women' | 'Everyone';
