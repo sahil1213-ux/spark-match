@@ -128,8 +128,8 @@ export default function EmailOtpDialog({ open, onOpenChange, email, onVerified }
 
         {step === 'verified' && (
           <div className="flex flex-col items-center gap-2 py-4">
-            <CheckCircle2 className="h-12 w-12 text-emerald-500" />
-            <p className="text-sm font-medium text-emerald-700">Email verified!</p>
+            <CheckCircle2 className="h-12 w-12 text-primary" />
+            <p className="text-sm font-medium text-primary">Email verified!</p>
           </div>
         )}
 
