@@ -1,7 +1,14 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
+const { defineString } = require('firebase-functions/params');
 const admin = require('firebase-admin');
 const geofire = require('geofire-common');
+const nodemailer = require('nodemailer');
+
+const smtpEmail = defineString('SMTP_EMAIL', { default: '' });
+const smtpPassword = defineString('SMTP_PASSWORD', { default: '' });
+const smtpHost = defineString('SMTP_HOST', { default: 'smtp.gmail.com' });
+const smtpPort = defineString('SMTP_PORT', { default: '587' });
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -435,4 +442,99 @@ exports.resetSwipes = onSchedule('every 24 hours', async () => {
   if (deleteCount > 0) {
     await deleteBatch.commit();
   }
+});
+
+// ── Email OTP Functions ──
+
+function generateOtp() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function getTransporter() {
+  const email = smtpEmail.value();
+  const password = smtpPassword.value();
+  const host = smtpHost.value();
+  const port = parseInt(smtpPort.value(), 10);
+
+  if (!email || !password) {
+    throw new HttpsError('failed-precondition', 'SMTP credentials not configured. Set SMTP_EMAIL and SMTP_PASSWORD in Firebase environment.');
+  }
+
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure: port === 465,
+    auth: { user: email, pass: password },
+  });
+}
+
+exports.sendEmailOtp = onCall(async (request) => {
+  const { email } = request.data || {};
+  if (!email || typeof email !== 'string' || !email.includes('@')) {
+    throw new HttpsError('invalid-argument', 'Valid email is required');
+  }
+
+  const otp = generateOtp();
+  const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + 10 * 60 * 1000));
+
+  await db.collection('emailOtps').doc(email.toLowerCase()).set({
+    otp,
+    expiresAt,
+    attempts: 0,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  const transporter = getTransporter();
+  await transporter.sendMail({
+    from: `"EliteSync" <${smtpEmail.value()}>`,
+    to: email,
+    subject: 'Your EliteSync verification code',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 400px; margin: 0 auto; padding: 24px;">
+        <h2 style="color: #1a1a1a; margin-bottom: 8px;">Verify your email</h2>
+        <p style="color: #555; font-size: 14px;">Use this code to verify your email on EliteSync:</p>
+        <div style="background: #f5f5f5; border-radius: 12px; padding: 20px; text-align: center; margin: 16px 0;">
+          <span style="font-size: 32px; letter-spacing: 8px; font-weight: bold; color: #1a1a1a;">${otp}</span>
+        </div>
+        <p style="color: #999; font-size: 12px;">This code expires in 10 minutes. If you didn't request this, you can ignore this email.</p>
+      </div>
+    `,
+  });
+
+  return { sent: true };
+});
+
+exports.verifyEmailOtp = onCall(async (request) => {
+  const { email, otp } = request.data || {};
+  if (!email || !otp) {
+    throw new HttpsError('invalid-argument', 'Email and OTP are required');
+  }
+
+  const ref = db.collection('emailOtps').doc(email.toLowerCase());
+  const snap = await ref.get();
+
+  if (!snap.exists) {
+    return { verified: false, reason: 'no_otp_found' };
+  }
+
+  const data = snap.data();
+
+  if ((data.attempts ?? 0) >= 5) {
+    await ref.delete();
+    return { verified: false, reason: 'too_many_attempts' };
+  }
+
+  const now = admin.firestore.Timestamp.now();
+  if (data.expiresAt && data.expiresAt.toMillis() < now.toMillis()) {
+    await ref.delete();
+    return { verified: false, reason: 'expired' };
+  }
+
+  if (data.otp !== otp) {
+    await ref.update({ attempts: (data.attempts ?? 0) + 1 });
+    return { verified: false, reason: 'invalid' };
+  }
+
+  await ref.delete();
+  return { verified: true };
 });

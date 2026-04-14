@@ -4,6 +4,7 @@ import { getCurrentUserId, signupUser, updateUserLocation } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ArrowLeft, CheckCircle2 } from 'lucide-react';
+import EmailOtpDialog from '@/components/EmailOtpDialog';
 
 type Identity = 'Male' | 'Female' | 'Non-binary' | 'Prefer not to say';
 type InterestedIn = 'Men' | 'Women' | 'Everyone';
@@ -39,6 +40,7 @@ export default function Signup() {
   const [emailVerified, setEmailVerified] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [showOtpDialog, setShowOtpDialog] = useState(false);
 
   const update = (key: keyof typeof form, val: string) => setForm((f) => ({ ...f, [key]: val }));
 
@@ -131,13 +133,27 @@ export default function Signup() {
           <Input type="password" placeholder="Password" value={form.password} onChange={e => update('password', e.target.value)} required className="h-12 rounded-xl" />
 
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => form.email && setEmailVerified(true)} className={`rounded-xl py-2.5 text-sm border ${emailVerified ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-card'}`}>
+            <button type="button" onClick={() => {
+              if (!form.email || !form.email.includes('@')) {
+                setError('Please enter a valid email first');
+                return;
+              }
+              setError('');
+              setShowOtpDialog(true);
+            }} className={`rounded-xl py-2.5 text-sm border ${emailVerified ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-card'}`} disabled={emailVerified}>
               {emailVerified ? <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> Email verified</span> : 'Verify email'}
             </button>
             <button type="button" onClick={() => form.phone && setPhoneVerified(true)} className={`rounded-xl py-2.5 text-sm border ${phoneVerified ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-card'}`}>
               {phoneVerified ? <span className="inline-flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> Phone verified</span> : 'Verify phone'}
             </button>
           </div>
+
+          <EmailOtpDialog
+            open={showOtpDialog}
+            onOpenChange={setShowOtpDialog}
+            email={form.email}
+            onVerified={() => setEmailVerified(true)}
+          />
 
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button type="submit" disabled={!canSubmit} className="w-full h-12 rounded-xl gradient-coral text-primary-foreground">Continue to Personality Check</Button>
